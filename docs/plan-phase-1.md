@@ -90,9 +90,11 @@ check "marketplace lists the plugin" "pr-review" \
 
 # The product name belongs only in load-bearing identifiers: host paths, host
 # environment variables, the plugin name and the manifest directory.
-hits=$(grep -rniI 'claude' "$ROOT" --exclude-dir=.git --exclude-dir=docs --exclude=CLAUDE.md \
+# Scope: the executable surface only. README.md and CLAUDE.md address a
+# reader who is installing the plugin and may name the host product freely.
+hits=$(grep -rniI 'claude' "$ROOT/skills" "$ROOT/scripts" "$ROOT/commands" 2>/dev/null \
   | grep -viE '~/\.claude/|\$HOME/\.claude|CLAUDE_CONFIG_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_CODE_SESSION_ID|claude-plugins-official|claude-review|\.claude-plugin|/\.claude/' || true)
-check "no product name in prose" "" "$hits"
+check "no product name in skill prose" "" "$hits"
 
 echo
 echo "$pass passed, $fail failed"
@@ -426,7 +428,9 @@ check "reads a fixture instead of the network" "A title" "$out"
 # Pagination: two pages joined into a single list.
 printf '%s' '[{"id":1}]' > "$FIX/GET_repos_acme_thing_pulls_42_comments.json"
 printf '%s' '[{"id":2}]' > "$FIX/GET_repos_acme_thing_pulls_42_comments__page=2.json"
-out=$(env GH_FIXTURES="$FIX" GH_TOKEN=x python3 -c "
+# GH_PAGE_SIZE=1 makes a one-item page a full page, so a second is fetched.
+# The third request finds no fixture, returns nothing, and ends the loop.
+out=$(env GH_FIXTURES="$FIX" GH_TOKEN=x GH_PAGE_SIZE=1 python3 -c "
 import sys; sys.path.insert(0, '$GHDIR')
 from ghlib import http
 print(len(http.rest('GET', '/repos/acme/thing/pulls/42/comments', paginate=True)))
@@ -455,7 +459,7 @@ raises "a 422 raises ApiError"           422 "Validation Failed"      3
 
 # Requests are recorded for later assertion.
 sent=$(wc -l < "$FIX/sent.jsonl" | tr -d ' ')
-check "records every request sent" "7" "$sent"
+check "records every request sent" "8" "$sent"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -623,6 +627,7 @@ def rest(method, path, body=None, paginate=False, accept="application/vnd.github
 
     items = []
     page = 1
+    size = int(os.environ.get("GH_PAGE_SIZE", "100"))
     while True:
         sep = "&" if "?" in path else "?"
         suffix = "" if page == 1 else "%spage=%d" % (sep, page)
@@ -630,7 +635,7 @@ def rest(method, path, body=None, paginate=False, accept="application/vnd.github
         if not chunk:
             break
         items.extend(chunk)
-        if len(chunk) < 100:
+        if len(chunk) < size:
             break
         page += 1
     return items
@@ -1198,7 +1203,7 @@ def register(subparsers):
 
 import json
 
-from . import bodies, http, repo
+from . import http, repo
 
 _THREADS_QUERY = """
 query($owner:String!, $name:String!, $number:Int!) {
@@ -1508,7 +1513,7 @@ def comment_delete(args):
     return http.rest("DELETE", "/repos/%s/%s/issues/comments/%s" % (owner, name, args.comment_id))
 ```
 
-Extend `comments.py`'s `register` with:
+Add `bodies` to `comments.py`'s imports (`from . import bodies, http, repo`), then extend its `register` with:
 
 ```python
     parser = subparsers.add_parser("thread-reply", help="reply inside a review thread")
@@ -1585,12 +1590,10 @@ Expected: FAIL — `invalid choice: 'pr-files'`.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Append to `skills/github-curl/ghlib/pr.py`:
+Add `import base64` to the import block at the top of
+`skills/github-curl/ghlib/pr.py`, then append:
 
 ```python
-import base64
-
-
 def pr_diff(args):
     owner, name = repo.owner_repo()
     result = http.rest(
@@ -2158,7 +2161,7 @@ the document rather than trusting the author to remember."
 Append to `tests/run-tests.sh`:
 
 ```bash
-for skill in start-review auto-fix-loop process-comments; do
+for skill in start-review auto-fix-loop; do
   doc="$ROOT/skills/$skill/SKILL.md"
   check "$skill frontmatter name" "$skill" \
     "$(awk '/^name:/ {print $2; exit}' "$doc" 2>/dev/null)"
@@ -2213,8 +2216,8 @@ Never ask which language to post in. Everything that lands on GitHub is English.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `bash tests/run-tests.sh` — `process-comments` checks still fail; that is Task 14.
-Expected for the two skills in this task: 8 new `ok` lines.
+Run: `bash tests/run-tests.sh`
+Expected: `0 failed`, with 8 new `ok` lines (4 checks for each of the two skills).
 
 - [ ] **Step 5: Commit**
 
@@ -2234,7 +2237,7 @@ instead of naming French, while everything published stays English."
 
 **Files:**
 - Create: `skills/process-comments/SKILL.md`, `skills/process-comments/scripts/filter_reviews.py`, `skills/process-comments/scripts/extract_user_login.py`, `skills/process-comments/scripts/extract_paths.py`
-- Test: covered by the loop added in Task 13
+- Test: `tests/run-tests.sh` — extend the Task 13 loop to cover this skill
 
 **Interfaces:**
 - Consumes: `github-curl`, `scripts/preflight.sh`.
@@ -2252,10 +2255,22 @@ diff ~/dev/www/geonative-api/.claude/skills/pr-review-toolkit:process-comments/S
 
 Expected: only lines that also appear, reworded, in the front-office copy. If a substantive rule exists only in the `geonative-api` copy, port it into the extracted document before continuing, and say so in the commit body.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Extend the skill loop, then run it to verify it fails**
+
+Change the loop header added in Task 13 from
+
+```bash
+for skill in start-review auto-fix-loop; do
+```
+
+to
+
+```bash
+for skill in start-review auto-fix-loop process-comments; do
+```
 
 Run: `bash tests/run-tests.sh`
-Expected: FAIL on the four `process-comments` checks from Task 13.
+Expected: FAIL on the four new `process-comments` checks.
 
 - [ ] **Step 3: Write minimal implementation**
 
