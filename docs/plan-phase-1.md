@@ -20,6 +20,10 @@
 - `preflight.sh` exit codes: `0` ok, `10` missing/disabled plugin dependency, `11` missing system tool, `12` auth failure, `13` not a GitHub repository.
 - Each failure prints one `error:` line and one `fix:` line to stderr. The `fix:` line gives the literal command when one exists and is universal (`gh auth login`, `/plugin install <name>`); where the remedy depends on the reader's platform or package manager (installing python3 or curl) it names the concrete action instead. Never a restatement of the error.
 - Plugin skill paths are always written `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/...`. Never a relative `.claude/skills/` path.
+- No user input may reach an unguarded conversion or file read. A bad PR number, a missing
+  file or malformed JSON must surface as a mapped exit code, never a Python traceback.
+  Numeric arguments use argparse's `type=int` (its failure routes through the overridden
+  `error()`); file reads are wrapped and re-raised as `errors.UsageError`.
 - Never write `x.get("k", {}).get(...)` against API data. `.get` returns the default only when the
   key is ABSENT; a key present with a JSON `null` returns `None` and the chained call raises
   `AttributeError`, which surfaces as a traceback instead of a mapped exit code. GitHub sends
@@ -1214,11 +1218,11 @@ def register(subparsers):
     parser.set_defaults(handler=pr_list)
 
     parser = subparsers.add_parser("pr-status", help="get PR state")
-    parser.add_argument("pr")
+    parser.add_argument("pr", type=int)
     parser.set_defaults(handler=pr_status)
 
     parser = subparsers.add_parser("pr-checks", help="combined status and check runs")
-    parser.add_argument("pr")
+    parser.add_argument("pr", type=int)
     parser.set_defaults(handler=pr_checks)
 ```
 
@@ -1229,7 +1233,7 @@ def register(subparsers):
 
 import json
 
-from . import http, repo
+from . import errors, http, repo
 
 _THREADS_QUERY = """
 query($owner:String!, $name:String!, $number:Int!) {
@@ -1300,8 +1304,13 @@ def comment_resolved(args):
 
 
 def comments_resolved_batch(args):
-    with open(args.json_file) as fh:
-        ids = json.load(fh)
+    try:
+        with open(args.json_file, encoding="utf-8") as fh:
+            ids = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise errors.UsageError("cannot read %s: %s" % (args.json_file, exc))
+    if not isinstance(ids, list):
+        raise errors.UsageError("%s must hold a JSON array of node ids" % args.json_file)
     return {node_id: http.graphql(_MINIMIZED, {"id": node_id}) for node_id in ids}
 
 
@@ -1329,7 +1338,9 @@ def register(subparsers):
         ("comment-unresolve", comment_unresolve, "node_id"),
     ):
         parser = subparsers.add_parser(cmd)
-        parser.add_argument(arg)
+        # A PR number is validated by argparse, which routes a bad value through
+        # the overridden error() to a mapped usage exit instead of a traceback.
+        parser.add_argument(arg, type=int if arg == "pr" else str)
         parser.set_defaults(handler=handler)
 
     parser = subparsers.add_parser("comments-resolved-batch")
@@ -1489,7 +1500,7 @@ def review_submit(args):
 
 def register(subparsers):
     parser = subparsers.add_parser("review-submit", help="submit a review")
-    parser.add_argument("pr")
+    parser.add_argument("pr", type=int)
     parser.add_argument("--event", required=True, choices=("COMMENT", "APPROVE", "REQUEST_CHANGES"))
     parser.add_argument("--body-file", dest="body_file", default=None)
     parser.add_argument(
@@ -1548,7 +1559,7 @@ Add `bodies` to `comments.py`'s imports (`from . import bodies, http, repo`), th
     parser.set_defaults(handler=thread_reply)
 
     parser = subparsers.add_parser("pr-comment", help="post a general PR comment")
-    parser.add_argument("pr")
+    parser.add_argument("pr", type=int)
     parser.add_argument("--body-file", dest="body_file", required=True)
     parser.set_defaults(handler=pr_comment)
 
@@ -1656,7 +1667,7 @@ Extend `pr.py`'s `register`:
 ```python
     for cmd, handler in (("pr-diff", pr_diff), ("pr-files", pr_files), ("pr-commits", pr_commits)):
         parser = subparsers.add_parser(cmd)
-        parser.add_argument("pr")
+        parser.add_argument("pr", type=int)
         parser.set_defaults(handler=handler)
 
     parser = subparsers.add_parser("file-at-ref", help="read a file at a ref")
@@ -1821,7 +1832,7 @@ def assignee_remove(args):
 
 def register(subparsers):
     parser = subparsers.add_parser("pr-update", help="change title, body, base or state")
-    parser.add_argument("pr")
+    parser.add_argument("pr", type=int)
     parser.add_argument("--title", default=None)
     parser.add_argument("--body-file", dest="body_file", default=None)
     parser.add_argument("--base", default=None)
@@ -1829,7 +1840,7 @@ def register(subparsers):
     parser.set_defaults(handler=pr_update)
 
     parser = subparsers.add_parser("pr-ready", help="mark a draft PR ready for review")
-    parser.add_argument("pr")
+    parser.add_argument("pr", type=int)
     parser.set_defaults(handler=pr_ready)
 
     for cmd, handler in (
@@ -1841,7 +1852,7 @@ def register(subparsers):
         ("assignee-remove", assignee_remove),
     ):
         parser = subparsers.add_parser(cmd)
-        parser.add_argument("pr")
+        parser.add_argument("pr", type=int)
         parser.add_argument("names", nargs="+")
         parser.set_defaults(handler=handler)
 ```
@@ -1904,7 +1915,7 @@ def register(subparsers):
     parser.set_defaults(handler=issue_search)
 
     parser = subparsers.add_parser("pr-linked-issues")
-    parser.add_argument("pr")
+    parser.add_argument("pr", type=int)
     parser.set_defaults(handler=pr_linked_issues)
 ```
 
