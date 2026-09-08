@@ -486,9 +486,33 @@ printf '%s' '{"number":3,"title":"An issue"}' > "$F3/GET_repos_acme_thing_issues
 check "issue-view fetches the issue" "An issue" \
   "$(gh3 issue-view 3 --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["title"])')"
 
-printf '%s' '{"items":[{"number":9}]}' > "$F3/GET_search_issues__q=repo:acme_thing+bug.json"
+printf '%s' '{"items":[{"number":9}]}' > "$F3/GET_search_issues__q=repo%3Aacme%2Fthing%20bug.json"
 check "issue-search queries the search API" "9" \
   "$(gh3 issue-search bug --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["items"][0]["number"])')"
+
+# issue-search must percent-encode the whole query, not just replace spaces
+# with "+". A raw "#" opens a URL fragment (the server never sees anything
+# after it) and a raw "&" starts a second query parameter -- both would
+# silently change what is actually searched for. Assert on the transmitted
+# path recorded in sent.jsonl, not on the (fixture-less) response, so the
+# check fails if quote() is ever replaced by a plainer substitution.
+gh3 issue-search 'C#' >/dev/null
+hash_path=$(python3 -c "
+import json
+rows = [json.loads(line) for line in open('$F3/sent.jsonl')]
+matches = [r for r in rows if r['path'].startswith('/search/issues')]
+print(matches[-1]['path'])
+")
+check "issue-search percent-encodes a # term" "/search/issues?q=repo%3Aacme%2Fthing%20C%23" "$hash_path"
+
+gh3 issue-search 'foo&bar' >/dev/null
+amp_path=$(python3 -c "
+import json
+rows = [json.loads(line) for line in open('$F3/sent.jsonl')]
+matches = [r for r in rows if r['path'].startswith('/search/issues')]
+print(matches[-1]['path'])
+")
+check "issue-search percent-encodes a & term" "/search/issues?q=repo%3Aacme%2Fthing%20foo%26bar" "$amp_path"
 
 echo
 echo "$pass passed, $fail failed"
