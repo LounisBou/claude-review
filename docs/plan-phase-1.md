@@ -1900,6 +1900,8 @@ def register(subparsers):
 ```python
 """Issues and cross-repository search."""
 
+from urllib.parse import quote
+
 from . import http, repo
 
 _LINKED = """
@@ -1926,8 +1928,12 @@ def issue_list(args):
 
 
 def issue_search(args):
+    # Percent-encode the whole query. Replacing spaces with "+" leaves every
+    # other reserved character raw, and the failure is silent: "C#" truncates
+    # at the fragment marker and searches for "C", while "foo&bar" injects a
+    # second query parameter. A wrong search result looks like an answer.
     query = "repo:%s %s" % (repo.nwo(), " ".join(args.terms))
-    return http.rest("GET", "/search/issues?q=" + query.replace(" ", "+"))
+    return http.rest("GET", "/search/issues?q=" + quote(query, safe=""))
 
 
 def pr_linked_issues(args):
