@@ -28,4 +28,35 @@ case "$remote" in
   *) die "origin is not a github.com remote: $remote" "run this from a GitHub repository clone" 13 ;;
 esac
 
+# ── Plugin dependencies ───────────────────────────────────────
+# The authority is enabledPlugins, not the presence of files under
+# ~/.claude/plugins/cache: a plugin can sit on disk and be inert.
+if [ "${PR_REVIEW_SKIP_PLUGINS:-0}" != "1" ]; then
+  missing=$(python3 - "$SETTINGS" <<'PY'
+import json, sys
+required = ["pr-review-toolkit@claude-plugins-official", "code-review@claude-plugins-official"]
+try:
+    with open(sys.argv[1]) as fh:
+        enabled = json.load(fh).get("enabledPlugins", {})
+except (OSError, ValueError):
+    print(" ".join(required))
+    sys.exit(0)
+print(" ".join(k for k in required if enabled.get(k) is not True))
+PY
+)
+  if [ -n "$missing" ]; then
+    for dep in $missing; do
+      printf 'error: required plugin not installed or not enabled: %s\n' "$dep" >&2
+      printf 'fix:   /plugin install %s   then enable it in /plugin\n' "$dep" >&2
+    done
+    exit 10
+  fi
+fi
+
+# ── GitHub token ──────────────────────────────────────────────
+if [ "${PR_REVIEW_SKIP_AUTH:-0}" != "1" ]; then
+  token="${GH_TOKEN:-$(gh auth token 2>/dev/null || echo "")}"
+  [ -n "$token" ] || die "no GitHub token available" "gh auth login" 12
+fi
+
 exit 0

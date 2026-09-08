@@ -76,6 +76,33 @@ check_status "non-github origin exits 13" 13 \
 msg=$(env PATH="$WORK/emptybin" HOME="$WORK" /bin/bash "$ROOT/scripts/preflight.sh" 2>&1 >/dev/null | grep -c '^fix:')
 check "failure prints a fix line" "1" "$msg"
 
+echo "== preflight: plugin dependencies =="
+
+mkdir -p "$WORK/repo" && git -C "$WORK/repo" init -q -b main
+git -C "$WORK/repo" remote add origin https://github.com/acme/thing.git
+
+settings() { mkdir -p "$WORK/cfg"; printf '%s' "$1" > "$WORK/cfg/settings.json"; }
+pf() {
+  env HOME="$WORK" PR_REVIEW_SETTINGS="$WORK/cfg/settings.json" PR_REVIEW_SKIP_AUTH=1 \
+    sh -c "cd '$WORK/repo' && bash '$ROOT/scripts/preflight.sh'"
+}
+
+settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":true}}'
+check_status "both dependencies enabled passes" 0 pf
+
+settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":false}}'
+check_status "a disabled dependency exits 10" 10 pf
+
+settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true}}'
+check_status "an absent dependency exits 10" 10 pf
+
+settings '{ this is not json'
+check_status "malformed settings exits 10" 10 pf
+
+settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":false}}'
+named=$(pf 2>&1 >/dev/null | grep -c 'code-review')
+check "the failure names the offending plugin" "2" "$named"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
