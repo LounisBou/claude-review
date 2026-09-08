@@ -463,6 +463,33 @@ out=$(gh3 pr-diff 999 2>&1)
 check "pr-diff dict response has error line" "1" "$(printf '%s' "$out" | grep -c '^error:')"
 check "pr-diff dict response has no traceback" "0" "$(printf '%s' "$out" | grep -cE 'Traceback|^[A-Za-z]*Error:')"
 
+echo "== metadata and issues =="
+
+printf '%s' '{"number":7,"title":"New"}' > "$F3/PATCH_repos_acme_thing_pulls_7.json"
+gh3 pr-update 7 --title "New" >/dev/null
+title=$(python3 -c "
+import json
+for line in open('$F3/sent.jsonl'):
+    row = json.loads(line)
+    if row['method'] == 'PATCH' and row['path'].endswith('/pulls/7'):
+        print(row['body']['title'])
+")
+check "pr-update sends only the given fields" "New" "$title"
+
+check_status "pr-update with no field exits 1" 1 gh3 pr-update 7
+
+printf '%s' '[{"name":"bug"}]' > "$F3/POST_repos_acme_thing_issues_7_labels.json"
+check "label-add returns the label set" "bug" \
+  "$(gh3 label-add 7 bug --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["name"])')"
+
+printf '%s' '{"number":3,"title":"An issue"}' > "$F3/GET_repos_acme_thing_issues_3.json"
+check "issue-view fetches the issue" "An issue" \
+  "$(gh3 issue-view 3 --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["title"])')"
+
+printf '%s' '{"items":[{"number":9}]}' > "$F3/GET_search_issues__q=repo:acme_thing+bug.json"
+check "issue-search queries the search API" "9" \
+  "$(gh3 issue-search bug --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["items"][0]["number"])')"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
