@@ -455,7 +455,8 @@ check "pr-diff returns plain text diff" "--- a/file
   "$(gh3 pr-diff 42 --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["diff"][:21])')"
 
 # pr-diff: dict response (missing fixture or wrong response) exits 3 with error line
-printf '%s' '{"__status":999,"message":"malformed"}' \
+# Fixture is a plain dict with no __status, so it flows through transport untouched to the handler
+printf '%s' '{"diff":""}' \
   > "$F3/GET_repos_acme_thing_pulls_999.json"
 check_status "pr-diff on dict response exits 3" 3 gh3 pr-diff 999
 out=$(gh3 pr-diff 999 2>&1)
