@@ -193,6 +193,31 @@ raises "a 429 raises code 5"             429 "You have exceeded a secondary rate
 sent=$(wc -l < "$FIX/sent.jsonl" | tr -d ' ')
 check "records every request sent" "9" "$sent"
 
+# Test that _request survives non-JSON responses (like diffs).
+# Mock urllib.request.urlopen to return plain text, verify _request returns it as a string.
+result=$(python3 -c "
+import sys
+sys.path.insert(0, '$GHDIR')
+from unittest.mock import Mock, patch
+from ghlib import http
+
+# Mock response with plain text (like a diff)
+mock_resp = Mock()
+mock_resp.read.return_value = b'--- file\n+++ file\n'
+mock_resp.status = 200
+mock_resp.__enter__ = Mock(return_value=mock_resp)
+mock_resp.__exit__ = Mock(return_value=False)
+
+with patch('urllib.request.urlopen', return_value=mock_resp):
+    status, data = http._request('GET', 'http://example.com/diff', None, {})
+    # data should be a string, not a dict
+    if isinstance(data, str) and data.startswith('---'):
+        print('ok')
+    else:
+        print('fail')
+")
+check "transport survives non-JSON response" "ok" "$result"
+
 echo "== cli skeleton =="
 
 check "resolves owner/repo from the origin remote" "acme/thing" \

@@ -73,7 +73,15 @@ def _request(method, url, body, headers):
     try:
         with urllib.request.urlopen(req) as resp:
             raw = resp.read().decode()
-            return resp.status, json.loads(raw) if raw else {}
+            if not raw:
+                return resp.status, {}
+            try:
+                return resp.status, json.loads(raw)
+            except ValueError:
+                # Not every endpoint answers in JSON: the diff and patch media
+                # types return plain text. Hand that body back as a string
+                # instead of failing to parse it as an object.
+                return resp.status, raw
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode()
         try:
