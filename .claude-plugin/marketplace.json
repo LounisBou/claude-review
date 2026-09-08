@@ -1,0 +1,22 @@
+{
+  "name": "claude-review",
+  "owner": {
+    "name": "Lounis Bou",
+    "email": "lounis.bou@gmail.com"
+  },
+  "metadata": {
+    "description": "PR review tooling",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "pr-review",
+      "source": "./",
+      "description": "Interactive PR review walkthrough, GitHub comment processing, autonomous review-fix loop, and a stdlib GitHub API tool.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Lounis Bou"
+      }
+    }
+  ]
+}
