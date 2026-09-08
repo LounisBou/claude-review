@@ -318,6 +318,59 @@ check_status "pr-threads with a non-numeric pr exits 1" 1 \
 out=$(gh pr-threads abc 2>&1)
 check "non-numeric pr has no traceback" "0" "$(printf '%s' "$out" | grep -cE 'Traceback|^[A-Za-z]*Error:')"
 
+echo "== body-file fidelity =="
+
+F3="$WORK/fix3"; mkdir -p "$F3"
+gh3() { env GH_FIXTURES="$F3" GH_TOKEN=x GH_REPO=acme/thing python3 "$GHDIR/gh.py" "$@"; }
+
+# Every character class that breaks shell quoting, in one body.
+BODY="$WORK/body.md"
+{
+  printf 'Line one with `backticks` and a $VAR sequence\n'
+  printf 'A "double quoted" phrase and a '\''single quoted'\'' one\n'
+  printf '\n'
+  printf '```bash\n'
+  printf 'echo "$(whoami)" && rm -rf /tmp/nothing\n'
+  printf '```\n'
+  printf 'Trailing line with an accent: éàü\n'
+} > "$BODY"
+
+printf '%s' '{"id":99}' > "$F3/POST_repos_acme_thing_issues_7_comments.json"
+gh3 pr-comment 7 --body-file "$BODY" >/dev/null
+
+sent=$(python3 -c "
+import json
+for line in open('$F3/sent.jsonl'):
+    row = json.loads(line)
+    if row['path'].endswith('/issues/7/comments'):
+        print(row['body']['body'], end='')
+")
+check "body-file arrives byte-identical" "$(cat "$BODY")" "$sent"
+
+check_status "a missing body file exits 1" 1 gh3 pr-comment 7 --body-file "$WORK/nope.md"
+check_status "an empty body file exits 1" 1 sh -c ": > '$WORK/empty.md'; $(printf '%q ' env GH_FIXTURES="$F3" GH_TOKEN=x GH_REPO=acme/thing python3 "$GHDIR/gh.py") pr-comment 7 --body-file '$WORK/empty.md'"
+
+echo "== review writes =="
+
+printf '%s' '{"id":5,"state":"COMMENTED"}' > "$F3/POST_repos_acme_thing_pulls_7_reviews.json"
+cat > "$WORK/inline.json" <<'JSON'
+[{"path":"src/a.py","line":12,"side":"RIGHT","body":"Consider renaming this."}]
+JSON
+gh3 review-submit 7 --event COMMENT --body-file "$BODY" --comments-file "$WORK/inline.json" >/dev/null
+
+payload=$(python3 -c "
+import json
+for line in open('$F3/sent.jsonl'):
+    row = json.loads(line)
+    if row['path'].endswith('/pulls/7/reviews'):
+        print(row['body']['event'], len(row['body']['comments']), row['body']['comments'][0]['path'])
+")
+check "review-submit sends event and inline comments" "COMMENT 1 src/a.py" "$payload"
+
+# Task 5 overrode ArgumentParser.error() so argparse's own exit 2 becomes the
+# CLI's documented usage code. An invalid --event choice therefore exits 1.
+check_status "an invalid event exits 1 as a usage error" 1 gh3 review-submit 7 --event NOPE --body-file "$BODY"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

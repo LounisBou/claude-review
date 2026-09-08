@@ -2,7 +2,7 @@
 
 import json
 
-from . import errors, http, repo
+from . import bodies, errors, http, repo
 
 _THREADS_QUERY = """
 query($owner:String!, $name:String!, $number:Int!) {
@@ -95,6 +95,41 @@ def comment_unresolve(args):
     return http.graphql(_UNRESOLVE, {"id": args.node_id})
 
 
+def thread_reply(args):
+    body = bodies.read(args.body_file)
+    return http.graphql(
+        """
+        mutation($id:ID!, $body:String!) {
+          addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$id, body:$body}) {
+            comment { id url }
+          }
+        }
+        """,
+        {"id": args.thread_id, "body": body},
+    )
+
+
+def pr_comment(args):
+    owner, name = repo.owner_repo()
+    body = bodies.read(args.body_file)
+    return http.rest(
+        "POST", "/repos/%s/%s/issues/%s/comments" % (owner, name, args.pr), {"body": body}
+    )
+
+
+def comment_edit(args):
+    owner, name = repo.owner_repo()
+    body = bodies.read(args.body_file)
+    return http.rest(
+        "PATCH", "/repos/%s/%s/issues/comments/%s" % (owner, name, args.comment_id), {"body": body}
+    )
+
+
+def comment_delete(args):
+    owner, name = repo.owner_repo()
+    return http.rest("DELETE", "/repos/%s/%s/issues/comments/%s" % (owner, name, args.comment_id))
+
+
 def register(subparsers):
     for cmd, handler, arg in (
         ("pr-threads", pr_threads, "pr"),
@@ -115,3 +150,22 @@ def register(subparsers):
     parser = subparsers.add_parser("comments-resolved-batch")
     parser.add_argument("json_file", help="file holding a JSON array of node ids")
     parser.set_defaults(handler=comments_resolved_batch)
+
+    parser = subparsers.add_parser("thread-reply", help="reply inside a review thread")
+    parser.add_argument("thread_id")
+    parser.add_argument("--body-file", dest="body_file", required=True)
+    parser.set_defaults(handler=thread_reply)
+
+    parser = subparsers.add_parser("pr-comment", help="post a general PR comment")
+    parser.add_argument("pr", type=int)
+    parser.add_argument("--body-file", dest="body_file", required=True)
+    parser.set_defaults(handler=pr_comment)
+
+    parser = subparsers.add_parser("comment-edit")
+    parser.add_argument("comment_id")
+    parser.add_argument("--body-file", dest="body_file", required=True)
+    parser.set_defaults(handler=comment_edit)
+
+    parser = subparsers.add_parser("comment-delete")
+    parser.add_argument("comment_id")
+    parser.set_defaults(handler=comment_delete)
