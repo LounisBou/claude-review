@@ -243,6 +243,17 @@ check "thread-summary with null author renders ?" "| ? |" \
 check "issue-comments-summary with null user renders ?" "| ? |" \
   "$(render issue-comments-summary '[{"id":"c1","user":null,"body":"test comment"}]' | grep -o '| ? |')"
 
+check_status "resolve-status with null mutation payload exits 3" 3 \
+  sh -c "printf '{\"resolveReviewThread\":null}' | python3 -c \"
+import json, sys
+sys.path.insert(0, '$GHDIR')
+from ghlib import fmt, errors
+try:
+    fmt.render('resolve-status', json.load(sys.stdin))
+except errors.GhError as e:
+    sys.exit(e.code)
+\""
+
 check_status "an unknown formatter exits 1" 1 \
   sh -c "printf '{}' | python3 -c \"
 import json, sys

@@ -154,4 +154,4 @@ def graphql(query, variables):
         _raise_for(status, data)
     if "errors" in data:
         raise errors.ApiError(data["errors"][0].get("message", "graphql error"))
-    return data.get("data", {})
+    return data.get("data") or {}

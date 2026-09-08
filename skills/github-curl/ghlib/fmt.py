@@ -79,10 +79,10 @@ def _thread_summary(obj):
 
 
 def _resolve_status(obj):
-    thread = obj.get("resolveReviewThread", {}).get("thread", {})
+    thread = (obj.get("resolveReviewThread") or {}).get("thread") or {}
     if thread.get("isResolved"):
         return "resolved"
-    thread = obj.get("unresolveReviewThread", {}).get("thread", {})
+    thread = (obj.get("unresolveReviewThread") or {}).get("thread") or {}
     if thread and not thread.get("isResolved"):
         return "unresolved"
     raise errors.ApiError("thread was not resolved")
