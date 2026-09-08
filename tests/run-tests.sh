@@ -142,6 +142,56 @@ check_status "GH_TOKEN set exits 0" 0 \
   env HOME="$WORK" PR_REVIEW_SETTINGS="$WORK/cfg/settings.json" PR_REVIEW_SKIP_PLUGINS=1 GH_TOKEN="dummy-token-12345" \
     sh -c "cd '$WORK/repo' && bash '$ROOT/scripts/preflight.sh'"
 
+echo "== http transport =="
+
+GHDIR="$ROOT/skills/github-curl"
+FIX="$WORK/fix"; mkdir -p "$FIX"
+
+printf '%s' '{"number":42,"title":"A title"}' > "$FIX/GET_repos_acme_thing_pulls_42.json"
+
+out=$(env GH_FIXTURES="$FIX" GH_TOKEN=x python3 -c "
+import sys; sys.path.insert(0, '$GHDIR')
+from ghlib import http
+print(http.rest('GET', '/repos/acme/thing/pulls/42')['title'])
+")
+check "reads a fixture instead of the network" "A title" "$out"
+
+# Pagination: two pages joined into a single list.
+printf '%s' '[{"id":1}]' > "$FIX/GET_repos_acme_thing_pulls_42_comments.json"
+printf '%s' '[{"id":2}]' > "$FIX/GET_repos_acme_thing_pulls_42_comments__page=2.json"
+# GH_PAGE_SIZE=1 makes a one-item page a full page, so a second is fetched.
+# The third request finds no fixture, returns nothing, and ends the loop.
+out=$(env GH_FIXTURES="$FIX" GH_TOKEN=x GH_PAGE_SIZE=1 python3 -c "
+import sys; sys.path.insert(0, '$GHDIR')
+from ghlib import http
+print(len(http.rest('GET', '/repos/acme/thing/pulls/42/comments', paginate=True)))
+")
+check "paginates until a short page" "2" "$out"
+
+# Each HTTP status maps to its own exit code.
+raises() {  # raises <name> <status> <message> <expected-exit>
+  printf '{"__status":%s,"message":"%s"}' "$2" "$3" > "$FIX/GET_repos_acme_thing_err_$2.json"
+  check_status "$1" "$4" \
+    env GH_FIXTURES="$FIX" GH_TOKEN=x python3 -c "
+import sys; sys.path.insert(0, '$GHDIR')
+from ghlib import http, errors
+try:
+    http.rest('GET', '/repos/acme/thing/err/$2')
+except errors.GhError as e:
+    sys.exit(e.code)
+sys.exit(0)
+"
+}
+
+raises "a 401 raises AuthError"          401 "Bad credentials"        2
+raises "a 403 rate limit raises code 5"  403 "API rate limit exceeded" 5
+raises "a 404 raises NotFound"           404 "Not Found"              4
+raises "a 422 raises ApiError"           422 "Validation Failed"      3
+
+# Requests are recorded for later assertion.
+sent=$(wc -l < "$FIX/sent.jsonl" | tr -d ' ')
+check "records every request sent" "8" "$sent"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
