@@ -18,7 +18,12 @@
 - The 16 carried-over subcommand names are preserved verbatim: `auth-check`, `pr-get`, `pr-list`, `pr-threads`, `pr-comments`, `pr-issue-comments`, `pr-reviews`, `pr-status`, `pr-checks`, `comment-resolved`, `comments-resolved-batch`, `thread-resolve`, `comment-resolve`, `comment-unresolve`, `pr-create`, `pr-merge`.
 - `gh.py` exit codes: `0` success, `1` usage, `2` auth, `3` API error, `4` not found, `5` rate limited after retries.
 - `preflight.sh` exit codes: `0` ok, `10` missing/disabled plugin dependency, `11` missing system tool, `12` auth failure, `13` not a GitHub repository.
+- Each failure prints one `error:` line and one `fix:` line to stderr. The `fix:` line gives the literal command when one exists and is universal (`gh auth login`, `/plugin install <name>`); where the remedy depends on the reader's platform or package manager (installing python3 or curl) it names the concrete action instead. Never a restatement of the error.
 - Plugin skill paths are always written `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/...`. Never a relative `.claude/skills/` path.
+- Never write `x.get("k", {}).get(...)` against API data. `.get` returns the default only when the
+  key is ABSENT; a key present with a JSON `null` returns `None` and the chained call raises
+  `AttributeError`, which surfaces as a traceback instead of a mapped exit code. GitHub sends
+  `null` for deleted-account authors and similar fields. Use `(x.get("k") or {}).get(...)`.
 - All repository content is English. Commit subjects are imperative prose with no `feat:`/`fix:` prefix; the body explains why. No `Claude-Session`, `Co-Authored-By: Claude` or `Generated with` trailers.
 - Tests never touch the network and never write outside `mktemp -d`.
 - Do not run `git push`, `/plugin install`, or modify anything under `~/.claude/` or `~/dev/www/`. Those are phases 2 and 3.
@@ -350,8 +355,13 @@ import json, sys
 required = ["pr-review-toolkit@claude-plugins-official", "code-review@claude-plugins-official"]
 try:
     with open(sys.argv[1]) as fh:
-        enabled = json.load(fh).get("enabledPlugins", {})
-except (OSError, ValueError):
+        data = json.load(fh)
+    enabled = data["enabledPlugins"] if isinstance(data, dict) else None
+    if not isinstance(enabled, dict):
+        raise ValueError("enabledPlugins is not an object")
+except (OSError, ValueError, KeyError, TypeError):
+    # Unreadable, not JSON, or JSON of the wrong shape all mean the same
+    # thing: nothing here proves a dependency is enabled.
     print(" ".join(required))
     sys.exit(0)
 print(" ".join(k for k in required if enabled.get(k) is not True))
@@ -542,7 +552,12 @@ def token():
 
 
 def _slug(method, path):
-    return (method + "_" + path).replace("?", "__").replace("/", "_").lstrip("_")
+    # The path's own leading "/" becomes a leading "_" once slashes are
+    # replaced; strip it from the path alone, before joining, so the separator
+    # between method and path is one underscore. Stripping after the join is a
+    # no-op, because the joined string starts with the method's first letter.
+    body = path.replace("/", "_").replace("?", "__").lstrip("_")
+    return method + "_" + body
 
 
 def _record(payload):
@@ -564,7 +579,7 @@ def _fixture(slug):
 
 def _raise_for(status, data):
     message = data.get("message", "request failed") if isinstance(data, dict) else "request failed"
-    if status in (401, 403) and "rate limit" in message.lower():
+    if status == 429 or (status in (401, 403) and "rate limit" in message.lower()):
         raise errors.RateLimited(message)
     if status in (401, 403):
         raise errors.AuthError(message)
@@ -614,10 +629,13 @@ def _call(method, path, body=None, accept="application/vnd.github+json"):
         if status in (403, 429) and attempt < _MAX_RETRIES - 1:
             time.sleep(2 ** attempt)
             continue
+        # The last attempt falls through here, so the final response decides:
+        # _raise_for maps a persistent 429 to RateLimited (exit 5). There is no
+        # post-loop raise, because the loop cannot exhaust without returning or
+        # raising, and a line that can never run is a lie about the control flow.
         if status >= 400:
             _raise_for(status, data)
         return data
-    raise errors.RateLimited("still rate limited after %d attempts" % _MAX_RETRIES)
 
 
 def rest(method, path, body=None, paginate=False, accept="application/vnd.github+json"):
@@ -657,7 +675,7 @@ def graphql(query, variables):
         _raise_for(status, data)
     if "errors" in data:
         raise errors.ApiError(data["errors"][0].get("message", "graphql error"))
-    return data.get("data", {})
+    return data.get("data") or {}
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -796,6 +814,14 @@ def build_parser():
     subparsers = parser.add_subparsers(dest="command")
     for module in _MODULES:
         module.register(subparsers)
+    # Accept the global flags after the subcommand as well, because
+    # `gh.py pr-get --format pr-number` is the form every caller writes and the
+    # form the skills document. SUPPRESS is what makes this safe: without it the
+    # subparser would overwrite the parent's value with a second default
+    # whenever the flag is omitted after the subcommand.
+    for sub in subparsers.choices.values():
+        sub.add_argument("--repo", default=argparse.SUPPRESS)
+        sub.add_argument("--format", default=argparse.SUPPRESS)
     return parser
 
 
@@ -987,24 +1013,24 @@ def _thread_summary(obj):
         return "No open review threads."
     lines = ["| thread | file | line | author |", "|---|---|---|---|"]
     for thread in items:
-        first = (thread.get("comments", {}).get("nodes") or [{}])[0]
+        first = ((thread.get("comments") or {}).get("nodes") or [{}])[0]
         lines.append(
             "| %s | %s | %s | %s |"
             % (
                 thread.get("id", "?"),
                 thread.get("path", "?"),
                 thread.get("line", "?"),
-                first.get("author", {}).get("login", "?"),
+                (first.get("author") or {}).get("login", "?"),
             )
         )
     return "\n".join(lines)
 
 
 def _resolve_status(obj):
-    thread = obj.get("resolveReviewThread", {}).get("thread", {})
+    thread = (obj.get("resolveReviewThread") or {}).get("thread") or {}
     if thread.get("isResolved"):
         return "resolved"
-    thread = obj.get("unresolveReviewThread", {}).get("thread", {})
+    thread = (obj.get("unresolveReviewThread") or {}).get("thread") or {}
     if thread and not thread.get("isResolved"):
         return "unresolved"
     raise errors.ApiError("thread was not resolved")
@@ -1020,7 +1046,7 @@ def _issue_comments_summary(obj):
             "| %s | %s | %s |"
             % (
                 comment.get("id", "?"),
-                comment.get("user", {}).get("login", "?"),
+                (comment.get("user") or {}).get("login", "?"),
                 body[0][:60] if body else "",
             )
         )
@@ -1035,8 +1061,8 @@ def _pr_details(obj):
             "title": item.get("title"),
             "state": item.get("state"),
             "draft": item.get("draft"),
-            "head": item.get("head", {}).get("ref"),
-            "base": item.get("base", {}).get("ref"),
+            "head": (item.get("head") or {}).get("ref"),
+            "base": (item.get("base") or {}).get("ref"),
             "url": item.get("html_url"),
         },
         sort_keys=True,
@@ -1170,7 +1196,7 @@ def pr_status(args):
 def pr_checks(args):
     owner, name = repo.owner_repo()
     pull = http.rest("GET", "/repos/%s/%s/pulls/%s" % (owner, name, args.pr))
-    sha = pull.get("head", {}).get("sha", "")
+    sha = (pull.get("head") or {}).get("sha", "")
     statuses = http.rest("GET", "/repos/%s/%s/commits/%s/status" % (owner, name, sha))
     runs = http.rest("GET", "/repos/%s/%s/commits/%s/check-runs" % (owner, name, sha))
     return {"statuses": statuses, "check_runs": runs.get("check_runs", [])}
@@ -1242,11 +1268,9 @@ def pr_threads(args):
     owner, name = repo.owner_repo()
     data = http.graphql(_THREADS_QUERY, {"owner": owner, "name": name, "number": int(args.pr)})
     nodes = (
-        data.get("repository", {})
-        .get("pullRequest", {})
-        .get("reviewThreads", {})
-        .get("nodes", [])
-    )
+        ((data.get("repository") or {}).get("pullRequest") or {})
+        .get("reviewThreads") or {}
+    ).get("nodes", [])
     return nodes
 
 
@@ -1401,7 +1425,9 @@ for line in open('$F3/sent.jsonl'):
 ")
 check "review-submit sends event and inline comments" "COMMENT 1 src/a.py" "$payload"
 
-check_status "an invalid event exits 2 from argparse" 2 gh3 review-submit 7 --event NOPE --body-file "$BODY"
+# Task 5 overrode ArgumentParser.error() so argparse's own exit 2 becomes the
+# CLI's documented usage code. An invalid --event choice therefore exits 1.
+check_status "an invalid event exits 1 as a usage error" 1 gh3 review-submit 7 --event NOPE --body-file "$BODY"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1859,10 +1885,8 @@ def pr_linked_issues(args):
     owner, name = repo.owner_repo()
     data = http.graphql(_LINKED, {"owner": owner, "name": name, "number": int(args.pr)})
     return (
-        data.get("repository", {})
-        .get("pullRequest", {})
-        .get("closingIssuesReferences", {})
-        .get("nodes", [])
+        ((data.get("repository") or {}).get("pullRequest") or {})
+        .get("closingIssuesReferences") or {}
     )
 
 
