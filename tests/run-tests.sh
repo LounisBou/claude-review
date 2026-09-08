@@ -514,6 +514,30 @@ print(matches[-1]['path'])
 ")
 check "issue-search percent-encodes a & term" "/search/issues?q=repo%3Aacme%2Fthing%20foo%26bar" "$amp_path"
 
+echo "== image upload =="
+
+printf 'not really a png' > "$WORK/shot.png"
+SHA=$(python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$WORK/shot.png")
+
+printf '%s' '{"__status":404,"message":"Not Found"}' > "$F3/GET_repos_acme_thing_contents_${SHA}.png__ref=pr-assets.json"
+printf '%s' '{"ref":"refs/heads/pr-assets"}' > "$F3/GET_repos_acme_thing_git_ref_heads_pr-assets.json"
+printf '%s' '{"content":{"path":"'"$SHA"'.png"}}' > "$F3/PUT_repos_acme_thing_contents_${SHA}.png.json"
+
+out=$(gh3 image-upload "$WORK/shot.png" --format raw)
+check "url points at the assets branch" \
+  "https://raw.githubusercontent.com/acme/thing/pr-assets/$SHA.png" \
+  "$(printf '%s' "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
+check "markdown is ready to paste" \
+  "![](https://raw.githubusercontent.com/acme/thing/pr-assets/$SHA.png)" \
+  "$(printf '%s' "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin)["markdown"])')"
+
+# An identical file already on the branch is not re-uploaded.
+printf '%s' '{"sha":"abc","path":"'"$SHA"'.png"}' > "$F3/GET_repos_acme_thing_contents_${SHA}.png__ref=pr-assets.json"
+check "an existing asset is reused" "True" \
+  "$(gh3 image-upload "$WORK/shot.png" --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["reused"])')"
+
+check_status "a missing image exits 1" 1 gh3 image-upload "$WORK/absent.png"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
