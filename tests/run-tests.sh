@@ -265,6 +265,25 @@ except errors.GhError as e:
     sys.exit(e.code)
 \""
 
+echo "== carried-over reads =="
+
+F2="$WORK/fix2"; mkdir -p "$F2"
+gh() { env GH_FIXTURES="$F2" GH_TOKEN=x GH_REPO=acme/thing python3 "$GHDIR/gh.py" "$@"; }
+
+printf '%s' '{"login":"someone"}' > "$F2/GET_user.json"
+check "auth-check reaches /user" "someone" "$(gh --format raw auth-check | python3 -c 'import json,sys; print(json.load(sys.stdin)["login"])')"
+
+printf '%s' '[{"number":7,"title":"T","state":"open","html_url":"u","head":{"ref":"h"},"base":{"ref":"main"},"draft":false}]' \
+  > "$F2/GET_repos_acme_thing_pulls__head=acme:feature-x.json"
+check "pr-get resolves the branch PR number" "7" "$(gh --format pr-number pr-get --branch feature-x)"
+
+printf '%s' '{"number":7,"state":"closed","merged":true}' > "$F2/GET_repos_acme_thing_pulls_7.json"
+check "pr-status reports merged" "merged" "$(gh --format pr-merge-status pr-status 7)"
+
+printf '%s' '[{"id":11,"body":"hello","user":{"login":"bob"}}]' > "$F2/GET_repos_acme_thing_issues_7_comments.json"
+check "pr-issue-comments returns the comments" "11" \
+  "$(gh --format raw pr-issue-comments 7 | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
