@@ -1402,19 +1402,26 @@ BODY="$WORK/body.md"
   printf 'echo "$(whoami)" && rm -rf /tmp/nothing\n'
   printf '```\n'
   printf 'Trailing line with an accent: éàü\n'
+  # A CRLF line, so that removing newline="" from bodies.read is detectable.
+  # Without one, the setting this test exists to protect is never exercised.
+  printf 'A line ending in CRLF\r\n'
 } > "$BODY"
 
 printf '%s' '{"id":99}' > "$F3/POST_repos_acme_thing_issues_7_comments.json"
 gh3 pr-comment 7 --body-file "$BODY" >/dev/null
 
-sent=$(python3 -c "
-import json
+# Compare through files, never through "$(...)": command substitution strips
+# every trailing newline from BOTH sides before check() sees them, so a real
+# stripping regression in bodies.read would compare equal and pass.
+python3 -c "
+import json, sys
 for line in open('$F3/sent.jsonl'):
     row = json.loads(line)
     if row['path'].endswith('/issues/7/comments'):
-        print(row['body']['body'], end='')
-")
-check "body-file arrives byte-identical" "$(cat "$BODY")" "$sent"
+        sys.stdout.write(row['body']['body'])
+        break
+" > "$WORK/sent-body.md"
+check_status "body-file arrives byte-identical" 0 cmp -s "$BODY" "$WORK/sent-body.md"
 
 check_status "a missing body file exits 1" 1 gh3 pr-comment 7 --body-file "$WORK/nope.md"
 check_status "an empty body file exits 1" 1 sh -c ": > '$WORK/empty.md'; $(printf '%q ' env GH_FIXTURES="$F3" GH_TOKEN=x GH_REPO=acme/thing python3 "$GHDIR/gh.py") pr-comment 7 --body-file '$WORK/empty.md'"
