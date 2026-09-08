@@ -293,6 +293,31 @@ check "--format also works before the subcommand" "someone" \
 check "--format defaults to raw when omitted on both sides" "someone" \
   "$(gh auth-check | python3 -c 'import json,sys; print(json.load(sys.stdin)["login"])')"
 
+# comments-resolved-batch must map a missing or malformed file to a usage exit
+# instead of leaking a raw FileNotFoundError/JSONDecodeError traceback.
+check_status "comments-resolved-batch on a missing file exits 1" 1 \
+  gh comments-resolved-batch "$F2/does-not-exist.json"
+
+out=$(gh comments-resolved-batch "$F2/does-not-exist.json" 2>&1)
+check "missing file prints an error line" "1" "$(printf '%s' "$out" | grep -c '^error:')"
+check "missing file has no traceback" "0" "$(printf '%s' "$out" | grep -cE 'Traceback|^[A-Za-z]*Error:')"
+
+printf 'not json' > "$F2/bad.json"
+check_status "comments-resolved-batch on malformed json exits 1" 1 \
+  gh comments-resolved-batch "$F2/bad.json"
+
+out=$(gh comments-resolved-batch "$F2/bad.json" 2>&1)
+check "malformed file prints an error line" "1" "$(printf '%s' "$out" | grep -c '^error:')"
+check "malformed file has no traceback" "0" "$(printf '%s' "$out" | grep -cE 'Traceback|^[A-Za-z]*Error:')"
+
+# A non-numeric pr must fail via argparse's own mapped usage exit, not an
+# unguarded int() conversion inside the handler.
+check_status "pr-threads with a non-numeric pr exits 1" 1 \
+  gh pr-threads abc
+
+out=$(gh pr-threads abc 2>&1)
+check "non-numeric pr has no traceback" "0" "$(printf '%s' "$out" | grep -cE 'Traceback|^[A-Za-z]*Error:')"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

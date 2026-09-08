@@ -2,7 +2,7 @@
 
 import json
 
-from . import http, repo
+from . import errors, http, repo
 
 _THREADS_QUERY = """
 query($owner:String!, $name:String!, $number:Int!) {
@@ -73,8 +73,13 @@ def comment_resolved(args):
 
 
 def comments_resolved_batch(args):
-    with open(args.json_file) as fh:
-        ids = json.load(fh)
+    try:
+        with open(args.json_file, encoding="utf-8") as fh:
+            ids = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise errors.UsageError("cannot read %s: %s" % (args.json_file, exc))
+    if not isinstance(ids, list):
+        raise errors.UsageError("%s must hold a JSON array of node ids" % args.json_file)
     return {node_id: http.graphql(_MINIMIZED, {"id": node_id}) for node_id in ids}
 
 
@@ -102,7 +107,9 @@ def register(subparsers):
         ("comment-unresolve", comment_unresolve, "node_id"),
     ):
         parser = subparsers.add_parser(cmd)
-        parser.add_argument(arg)
+        # A PR number is validated by argparse, which routes a bad value through
+        # the overridden error() to a mapped usage exit instead of a traceback.
+        parser.add_argument(arg, type=int if arg == "pr" else str)
         parser.set_defaults(handler=handler)
 
     parser = subparsers.add_parser("comments-resolved-batch")

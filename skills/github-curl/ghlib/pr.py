@@ -52,9 +52,9 @@ def register(subparsers):
     parser.set_defaults(handler=pr_list)
 
     parser = subparsers.add_parser("pr-status", help="get PR state")
-    parser.add_argument("pr")
+    parser.add_argument("pr", type=int)
     parser.set_defaults(handler=pr_status)
 
     parser = subparsers.add_parser("pr-checks", help="combined status and check runs")
-    parser.add_argument("pr")
+    parser.add_argument("pr", type=int)
     parser.set_defaults(handler=pr_checks)
