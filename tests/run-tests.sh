@@ -271,18 +271,27 @@ F2="$WORK/fix2"; mkdir -p "$F2"
 gh() { env GH_FIXTURES="$F2" GH_TOKEN=x GH_REPO=acme/thing python3 "$GHDIR/gh.py" "$@"; }
 
 printf '%s' '{"login":"someone"}' > "$F2/GET_user.json"
-check "auth-check reaches /user" "someone" "$(gh --format raw auth-check | python3 -c 'import json,sys; print(json.load(sys.stdin)["login"])')"
+check "auth-check reaches /user" "someone" "$(gh auth-check --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["login"])')"
 
 printf '%s' '[{"number":7,"title":"T","state":"open","html_url":"u","head":{"ref":"h"},"base":{"ref":"main"},"draft":false}]' \
   > "$F2/GET_repos_acme_thing_pulls__head=acme:feature-x.json"
-check "pr-get resolves the branch PR number" "7" "$(gh --format pr-number pr-get --branch feature-x)"
+check "pr-get resolves the branch PR number" "7" "$(gh pr-get --branch feature-x --format pr-number)"
 
 printf '%s' '{"number":7,"state":"closed","merged":true}' > "$F2/GET_repos_acme_thing_pulls_7.json"
-check "pr-status reports merged" "merged" "$(gh --format pr-merge-status pr-status 7)"
+check "pr-status reports merged" "merged" "$(gh pr-status 7 --format pr-merge-status)"
 
 printf '%s' '[{"id":11,"body":"hello","user":{"login":"bob"}}]' > "$F2/GET_repos_acme_thing_issues_7_comments.json"
 check "pr-issue-comments returns the comments" "11" \
-  "$(gh --format raw pr-issue-comments 7 | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')"
+  "$(gh pr-issue-comments 7 --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')"
+
+# --format is defined on the parent parser but also mirrored (via SUPPRESS) onto
+# every subparser, so it must work on either side of the subcommand, and the
+# parent's "raw" default must still apply when the flag is given on neither.
+check "--format also works before the subcommand" "someone" \
+  "$(gh --format raw auth-check | python3 -c 'import json,sys; print(json.load(sys.stdin)["login"])')"
+
+check "--format defaults to raw when omitted on both sides" "someone" \
+  "$(gh auth-check | python3 -c 'import json,sys; print(json.load(sys.stdin)["login"])')"
 
 echo
 echo "$pass passed, $fail failed"

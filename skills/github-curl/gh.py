@@ -33,6 +33,14 @@ def build_parser():
     subparsers = parser.add_subparsers(dest="command")
     for module in _MODULES:
         module.register(subparsers)
+    # Accept the global flags after the subcommand as well, because
+    # `gh.py pr-get --format pr-number` is the form every caller writes and the
+    # form the skills document. SUPPRESS is what makes this safe: without it the
+    # subparser would overwrite the parent's value with a second default
+    # whenever the flag is omitted after the subcommand.
+    for sub in subparsers.choices.values():
+        sub.add_argument("--repo", default=argparse.SUPPRESS)
+        sub.add_argument("--format", default=argparse.SUPPRESS)
     return parser
 
 
