@@ -1,9 +1,10 @@
 """Pull request reads."""
 
 import base64
+import binascii
 import subprocess
 
-from . import http, repo
+from . import errors, http, repo
 
 
 def _current_branch():
@@ -48,7 +49,12 @@ def pr_diff(args):
         "/repos/%s/%s/pulls/%s" % (owner, name, args.pr),
         accept="application/vnd.github.v3.diff",
     )
-    return {"diff": result if isinstance(result, str) else result.get("diff", "")}
+    # A diff media type always answers in plain text. Anything else means the
+    # response was not what was asked for, and an empty diff would read as
+    # "no changes" rather than as a failure.
+    if not isinstance(result, str):
+        raise errors.ApiError("expected a plain-text diff, got %s" % type(result).__name__)
+    return {"diff": result}
 
 
 def pr_files(args):
@@ -66,10 +72,26 @@ def file_at_ref(args):
     data = http.rest(
         "GET", "/repos/%s/%s/contents/%s?ref=%s" % (owner, name, args.path, args.ref)
     )
-    raw = data.get("content", "")
+    # A directory path makes this endpoint answer with a JSON array, not an object.
+    if not isinstance(data, dict):
+        raise errors.UsageError("%s is a directory, not a file" % args.path)
+
+    raw = data.get("content") or ""
+    binary = False
     if data.get("encoding") == "base64":
-        raw = base64.b64decode(raw).decode("utf-8", "replace")
-    return {"path": args.path, "ref": args.ref, "content": raw}
+        try:
+            payload = base64.b64decode(raw)
+        except (ValueError, binascii.Error) as exc:
+            raise errors.ApiError("cannot decode %s: %s" % (args.path, exc))
+        try:
+            raw = payload.decode("utf-8")
+        except UnicodeDecodeError:
+            # Do not decode with "replace": that turns a binary file into
+            # replacement characters, exits 0 and looks like a successful read
+            # while the content is destroyed. Hand back the base64 and say so.
+            raw = base64.b64encode(payload).decode("ascii")
+            binary = True
+    return {"path": args.path, "ref": args.ref, "content": raw, "binary": binary}
 
 
 def register(subparsers):

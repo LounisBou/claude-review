@@ -410,10 +410,57 @@ printf '%s' '[{"filename":"src/a.py","status":"modified","patch":"@@ -1 +1 @@"}]
 check "pr-files lists changed paths" "src/a.py" \
   "$(gh3 pr-files 7 --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["filename"])')"
 
+# pr-commits: returns a list
+printf '%s' '[{"sha":"abc123","message":"Fix bug"}]' > "$F3/GET_repos_acme_thing_pulls_7_commits.json"
+check "pr-commits returns commits list" "abc123" \
+  "$(gh3 pr-commits 7 --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["sha"])')"
+
+# file-at-ref: valid UTF-8 content round-trips unchanged with binary=false
 printf '%s' '{"content":"aGVsbG8=","encoding":"base64"}' \
   > "$F3/GET_repos_acme_thing_contents_README.md__ref=main.json"
 check "file-at-ref decodes base64 content" "hello" \
-  "$(gh3 file-at-ref README.md main --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["content"])')"
+  "$(gh3 file-at-ref README.md main --format raw | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["content"] if not d.get("binary") else "BINARY")')"
+
+# file-at-ref: directory response (JSON array) exits 1 with error line, no traceback
+printf '%s' '[{"name":"file1.txt"},{"name":"file2.txt"}]' \
+  > "$F3/GET_repos_acme_thing_contents_docs__ref=main.json"
+check_status "file-at-ref on directory exits 1" 1 gh3 file-at-ref docs main
+out=$(gh3 file-at-ref docs main 2>&1)
+check "directory error has error line" "1" "$(printf '%s' "$out" | grep -c '^error:')"
+check "directory error has no traceback" "0" "$(printf '%s' "$out" | grep -cE 'Traceback|^[A-Za-z]*Error:')"
+
+# file-at-ref: malformed base64 exits 3 with error line, no traceback
+printf '%s' '{"content":"not-valid-base64!!!","encoding":"base64"}' \
+  > "$F3/GET_repos_acme_thing_contents_broken.bin__ref=main.json"
+check_status "file-at-ref on malformed base64 exits 3" 3 gh3 file-at-ref broken.bin main
+out=$(gh3 file-at-ref broken.bin main 2>&1)
+check "malformed base64 has error line" "1" "$(printf '%s' "$out" | grep -c '^error:')"
+check "malformed base64 has no traceback" "0" "$(printf '%s' "$out" | grep -cE 'Traceback|^[A-Za-z]*Error:')"
+
+# file-at-ref: binary content (non-UTF8) returns binary=true and base64-encoded content
+# PNG magic bytes: 89 50 4E 47 = iVBORw== in base64
+printf '%s' '{"content":"iVBORw==","encoding":"base64"}' \
+  > "$F3/GET_repos_acme_thing_contents_image.png__ref=main.json"
+out=$(gh3 file-at-ref image.png main --format raw)
+binary_flag=$(printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("true" if d.get("binary") else "false")')
+check "binary content returns binary=true" "true" "$binary_flag"
+# Verify round-trip: base64-encode the content and it should match
+content=$(printf '%s' "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin)["content"])')
+check "binary content is base64-encoded" "iVBORw==" "$content"
+
+# pr-diff: plain text response returns the diff (fixture as JSON string)
+printf '%s' '"--- a/file\n+++ b/file\n@@ -1 +1 @@"' > "$F3/GET_repos_acme_thing_pulls_42.json"
+check "pr-diff returns plain text diff" "--- a/file
++++ b/file" \
+  "$(gh3 pr-diff 42 --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["diff"][:21])')"
+
+# pr-diff: dict response (missing fixture or wrong response) exits 3 with error line
+printf '%s' '{"__status":999,"message":"malformed"}' \
+  > "$F3/GET_repos_acme_thing_pulls_999.json"
+check_status "pr-diff on dict response exits 3" 3 gh3 pr-diff 999
+out=$(gh3 pr-diff 999 2>&1)
+check "pr-diff dict response has error line" "1" "$(printf '%s' "$out" | grep -c '^error:')"
+check "pr-diff dict response has no traceback" "0" "$(printf '%s' "$out" | grep -cE 'Traceback|^[A-Za-z]*Error:')"
 
 echo
 echo "$pass passed, $fail failed"
