@@ -187,10 +187,11 @@ raises "a 401 raises AuthError"          401 "Bad credentials"        2
 raises "a 403 rate limit raises code 5"  403 "API rate limit exceeded" 5
 raises "a 404 raises NotFound"           404 "Not Found"              4
 raises "a 422 raises ApiError"           422 "Validation Failed"      3
+raises "a 429 raises code 5"             429 "You have exceeded a secondary rate limit" 5
 
 # Requests are recorded for later assertion.
 sent=$(wc -l < "$FIX/sent.jsonl" | tr -d ' ')
-check "records every request sent" "8" "$sent"
+check "records every request sent" "9" "$sent"
 
 echo
 echo "$pass passed, $fail failed"

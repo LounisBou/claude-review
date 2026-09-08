@@ -58,7 +58,7 @@ def _fixture(slug):
 
 def _raise_for(status, data):
     message = data.get("message", "request failed") if isinstance(data, dict) else "request failed"
-    if status in (401, 403) and "rate limit" in message.lower():
+    if status == 429 or (status in (401, 403) and "rate limit" in message.lower()):
         raise errors.RateLimited(message)
     if status in (401, 403):
         raise errors.AuthError(message)
@@ -108,10 +108,13 @@ def _call(method, path, body=None, accept="application/vnd.github+json"):
         if status in (403, 429) and attempt < _MAX_RETRIES - 1:
             time.sleep(2 ** attempt)
             continue
+        # The last attempt falls through here, so the final response decides:
+        # _raise_for maps a persistent 429 to RateLimited (exit 5). There is no
+        # post-loop raise, because the loop cannot exhaust without returning or
+        # raising, and a line that can never run is a lie about the control flow.
         if status >= 400:
             _raise_for(status, data)
         return data
-    raise errors.RateLimited("still rate limited after %d attempts" % _MAX_RETRIES)
 
 
 def rest(method, path, body=None, paginate=False, accept="application/vnd.github+json"):
