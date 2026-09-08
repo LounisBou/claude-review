@@ -70,8 +70,10 @@ There is deliberately **no `uninstall.sh`**. The other two plugins have one beca
 they write into `settings.json` and therefore have something to undo. This plugin
 writes nothing outside its own directory; removing the plugin is the uninstall.
 
-`docs/` is matched by a rule in the global `~/.gitignore`, so design docs are
-committed with `git add -f`, as in `claude-statusbar` and `claude-orchestrator`.
+`docs/` is matched by a rule in the global `~/.gitignore`. As in
+`claude-orchestrator`, the repository `.gitignore` carries a `!docs/` negation,
+which takes precedence over a global exclude, so design docs are committed
+normally with no `-f` flag.
 
 ## 4. Dependency preflight
 
@@ -104,6 +106,8 @@ Python 3 standard library only (`urllib`); no packages to install. Organised as
 short modules rather than one large file:
 
 ```
+ghlib/errors.py     typed failures, each carrying its process exit code
+ghlib/bodies.py     reads a --body-file verbatim, refusing missing or empty files
 ghlib/http.py       REST + GraphQL transport, auth, automatic pagination,
                     retry on 403/429 with Retry-After, typed errors
 ghlib/repo.py       owner/repo detection from the origin remote, ref handling,
