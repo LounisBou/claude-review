@@ -109,10 +109,23 @@ check_status "enabledPlugins as string exits 10" 10 pf
 settings '[]'
 check_status "top-level array exits 10" 10 pf
 
-settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":false}}'
-output=$(pf 2>&1 >/dev/null)
-traceback=$(printf '%s' "$output" | grep -c 'Traceback')
-check "malformed JSON produces no traceback" "0" "$traceback"
+settings '{"enabledPlugins":"not-a-dict"}'
+output=$(pf 2>&1)
+error_lines=$(printf '%s' "$output" | grep -c '^error:')
+fix_lines=$(printf '%s' "$output" | grep -c '^fix:')
+traceback_lines=$(printf '%s' "$output" | grep -cE 'Traceback|^[A-Za-z]*Error:')
+check "enabledPlugins string produces error lines" "2" "$error_lines"
+check "enabledPlugins string produces fix lines" "2" "$fix_lines"
+check "enabledPlugins string has no traceback" "0" "$traceback_lines"
+
+settings '[]'
+output=$(pf 2>&1)
+error_lines=$(printf '%s' "$output" | grep -c '^error:')
+fix_lines=$(printf '%s' "$output" | grep -c '^fix:')
+traceback_lines=$(printf '%s' "$output" | grep -cE 'Traceback|^[A-Za-z]*Error:')
+check "top-level array produces error lines" "2" "$error_lines"
+check "top-level array produces fix lines" "2" "$fix_lines"
+check "top-level array has no traceback" "0" "$traceback_lines"
 
 echo "== preflight: GitHub token =="
 
@@ -121,7 +134,7 @@ mkdir -p "$WORK/fakebin"
 printf '#!/bin/sh\nexit 1\n' > "$WORK/fakebin/gh"
 chmod +x "$WORK/fakebin/gh"
 check_status "missing token exits 12" 12 \
-  env HOME="$WORK" PR_REVIEW_SETTINGS="$WORK/cfg/settings.json" PR_REVIEW_SKIP_PLUGINS=1 PATH="$WORK/fakebin:$PATH" \
+  env -u GH_TOKEN HOME="$WORK" PR_REVIEW_SETTINGS="$WORK/cfg/settings.json" PR_REVIEW_SKIP_PLUGINS=1 PATH="$WORK/fakebin:$PATH" \
     sh -c "cd '$WORK/repo' && bash '$ROOT/scripts/preflight.sh'"
 
 # Token via environment variable
