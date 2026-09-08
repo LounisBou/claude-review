@@ -215,6 +215,39 @@ check_status "an unknown subcommand exits 1" 1 \
 check_status "no subcommand exits 1" 1 \
   env GH_TOKEN=x python3 "$GHDIR/gh.py"
 
+echo "== formatters =="
+
+render() {
+  printf '%s' "$2" | python3 -c "
+import json, sys
+sys.path.insert(0, '$GHDIR')
+from ghlib import fmt
+print(fmt.render('$1', json.load(sys.stdin)))
+"
+}
+
+check "pr-number from a list" "42" "$(render pr-number '[{"number":42}]')"
+check "pr-number from an object" "42" "$(render pr-number '{"number":42}')"
+check "pr-number when absent" "" "$(render pr-number '[]')"
+check "pr-url" "https://x/1" "$(render pr-url '{"html_url":"https://x/1"}')"
+check "pr-merge-status merged" "merged" "$(render pr-merge-status '{"state":"closed","merged":true}')"
+check "pr-merge-status open" "open" "$(render pr-merge-status '{"state":"open","merged":false}')"
+check "pr-merge-status closed" "closed" "$(render pr-merge-status '{"state":"closed","merged":false}')"
+check "open-threads keeps only unresolved" "1" \
+  "$(render open-threads '[{"id":"a","isResolved":false},{"id":"b","isResolved":true}]' | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
+check "resolve-status" "resolved" "$(render resolve-status '{"resolveReviewThread":{"thread":{"isResolved":true}}}')"
+
+check_status "an unknown formatter exits 1" 1 \
+  sh -c "printf '{}' | python3 -c \"
+import json, sys
+sys.path.insert(0, '$GHDIR')
+from ghlib import fmt, errors
+try:
+    fmt.render('nope', json.load(sys.stdin))
+except errors.GhError as e:
+    sys.exit(e.code)
+\""
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
