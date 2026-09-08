@@ -65,14 +65,14 @@ def _thread_summary(obj):
         return "No open review threads."
     lines = ["| thread | file | line | author |", "|---|---|---|---|"]
     for thread in items:
-        first = (thread.get("comments", {}).get("nodes") or [{}])[0]
+        first = ((thread.get("comments") or {}).get("nodes") or [{}])[0]
         lines.append(
             "| %s | %s | %s | %s |"
             % (
                 thread.get("id", "?"),
                 thread.get("path", "?"),
                 thread.get("line", "?"),
-                first.get("author", {}).get("login", "?"),
+                (first.get("author") or {}).get("login", "?"),
             )
         )
     return "\n".join(lines)
@@ -98,7 +98,7 @@ def _issue_comments_summary(obj):
             "| %s | %s | %s |"
             % (
                 comment.get("id", "?"),
-                comment.get("user", {}).get("login", "?"),
+                (comment.get("user") or {}).get("login", "?"),
                 body[0][:60] if body else "",
             )
         )
@@ -113,8 +113,8 @@ def _pr_details(obj):
             "title": item.get("title"),
             "state": item.get("state"),
             "draft": item.get("draft"),
-            "head": item.get("head", {}).get("ref"),
-            "base": item.get("base", {}).get("ref"),
+            "head": (item.get("head") or {}).get("ref"),
+            "base": (item.get("base") or {}).get("ref"),
             "url": item.get("html_url"),
         },
         sort_keys=True,

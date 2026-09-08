@@ -237,6 +237,12 @@ check "open-threads keeps only unresolved" "1" \
   "$(render open-threads '[{"id":"a","isResolved":false},{"id":"b","isResolved":true}]' | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
 check "resolve-status" "resolved" "$(render resolve-status '{"resolveReviewThread":{"thread":{"isResolved":true}}}')"
 
+check "thread-summary with null author renders ?" "| ? |" \
+  "$(render thread-summary '[{"id":"t1","path":"f.py","line":"10","comments":{"nodes":[{"author":null}]},"isResolved":false}]' | grep -o '| ? |')"
+
+check "issue-comments-summary with null user renders ?" "| ? |" \
+  "$(render issue-comments-summary '[{"id":"c1","user":null,"body":"test comment"}]' | grep -o '| ? |')"
+
 check_status "an unknown formatter exits 1" 1 \
   sh -c "printf '{}' | python3 -c \"
 import json, sys
