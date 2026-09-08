@@ -103,6 +103,32 @@ settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"c
 named=$(pf 2>&1 >/dev/null | grep -c 'code-review')
 check "the failure names the offending plugin" "2" "$named"
 
+settings '{"enabledPlugins":"not-a-dict"}'
+check_status "enabledPlugins as string exits 10" 10 pf
+
+settings '[]'
+check_status "top-level array exits 10" 10 pf
+
+settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":false}}'
+output=$(pf 2>&1 >/dev/null)
+traceback=$(printf '%s' "$output" | grep -c 'Traceback')
+check "malformed JSON produces no traceback" "0" "$traceback"
+
+echo "== preflight: GitHub token =="
+
+# Missing token, missing gh
+mkdir -p "$WORK/fakebin"
+printf '#!/bin/sh\nexit 1\n' > "$WORK/fakebin/gh"
+chmod +x "$WORK/fakebin/gh"
+check_status "missing token exits 12" 12 \
+  env HOME="$WORK" PR_REVIEW_SETTINGS="$WORK/cfg/settings.json" PR_REVIEW_SKIP_PLUGINS=1 PATH="$WORK/fakebin:$PATH" \
+    sh -c "cd '$WORK/repo' && bash '$ROOT/scripts/preflight.sh'"
+
+# Token via environment variable
+check_status "GH_TOKEN set exits 0" 0 \
+  env HOME="$WORK" PR_REVIEW_SETTINGS="$WORK/cfg/settings.json" PR_REVIEW_SKIP_PLUGINS=1 GH_TOKEN="dummy-token-12345" \
+    sh -c "cd '$WORK/repo' && bash '$ROOT/scripts/preflight.sh'"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

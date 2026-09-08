@@ -37,8 +37,13 @@ import json, sys
 required = ["pr-review-toolkit@claude-plugins-official", "code-review@claude-plugins-official"]
 try:
     with open(sys.argv[1]) as fh:
-        enabled = json.load(fh).get("enabledPlugins", {})
-except (OSError, ValueError):
+        data = json.load(fh)
+    enabled = data["enabledPlugins"] if isinstance(data, dict) else None
+    if not isinstance(enabled, dict):
+        raise ValueError("enabledPlugins is not an object")
+except (OSError, ValueError, KeyError, TypeError):
+    # Unreadable, not JSON, or JSON of the wrong shape all mean the same
+    # thing: nothing here proves a dependency is enabled.
     print(" ".join(required))
     sys.exit(0)
 print(" ".join(k for k in required if enabled.get(k) is not True))
