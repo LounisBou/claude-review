@@ -378,6 +378,18 @@ check "review-submit sends event and inline comments" "COMMENT 1 src/a.py" "$pay
 # CLI's documented usage code. An invalid --event choice therefore exits 1.
 check_status "an invalid event exits 1 as a usage error" 1 gh3 review-submit 7 --event NOPE --body-file "$BODY"
 
+echo "== pr content =="
+
+printf '%s' '[{"filename":"src/a.py","status":"modified","patch":"@@ -1 +1 @@"}]' \
+  > "$F3/GET_repos_acme_thing_pulls_7_files.json"
+check "pr-files lists changed paths" "src/a.py" \
+  "$(gh3 pr-files 7 --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["filename"])')"
+
+printf '%s' '{"content":"aGVsbG8=","encoding":"base64"}' \
+  > "$F3/GET_repos_acme_thing_contents_README.md__ref=main.json"
+check "file-at-ref decodes base64 content" "hello" \
+  "$(gh3 file-at-ref README.md main --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["content"])')"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
