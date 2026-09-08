@@ -54,6 +54,28 @@ hits=$(grep -rniI 'claude' "$ROOT/skills" "$ROOT/scripts" "$ROOT/commands" 2>/de
   | grep -viE '~/\.claude/|\$HOME/\.claude|CLAUDE_CONFIG_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_CODE_SESSION_ID|claude-plugins-official|claude-review|\.claude-plugin|/\.claude/' || true)
 check "no product name in skill prose" "" "$hits"
 
+echo "== preflight: system tools =="
+
+# A PATH containing none of the required tools.
+mkdir -p "$WORK/emptybin"
+check_status "missing python3 exits 11" 11 \
+  env PATH="$WORK/emptybin" HOME="$WORK" /bin/bash "$ROOT/scripts/preflight.sh"
+
+# Not a git repository at all.
+mkdir -p "$WORK/norepo"
+check_status "not a git repo exits 13" 13 \
+  env HOME="$WORK" PR_REVIEW_SKIP_PLUGINS=1 sh -c "cd '$WORK/norepo' && /bin/bash '$ROOT/scripts/preflight.sh'"
+
+# A git repository whose origin is not GitHub.
+mkdir -p "$WORK/gitlab" && git -C "$WORK/gitlab" init -q -b main
+git -C "$WORK/gitlab" remote add origin https://gitlab.com/acme/thing.git
+check_status "non-github origin exits 13" 13 \
+  env HOME="$WORK" PR_REVIEW_SKIP_PLUGINS=1 sh -c "cd '$WORK/gitlab' && /bin/bash '$ROOT/scripts/preflight.sh'"
+
+# The failure message names the remedy.
+msg=$(env PATH="$WORK/emptybin" HOME="$WORK" /bin/bash "$ROOT/scripts/preflight.sh" 2>&1 >/dev/null | grep -c '^fix:')
+check "failure prints a fix line" "1" "$msg"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
