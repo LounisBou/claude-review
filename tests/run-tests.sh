@@ -193,6 +193,28 @@ raises "a 429 raises code 5"             429 "You have exceeded a secondary rate
 sent=$(wc -l < "$FIX/sent.jsonl" | tr -d ' ')
 check "records every request sent" "9" "$sent"
 
+echo "== cli skeleton =="
+
+check "resolves owner/repo from the origin remote" "acme/thing" \
+  "$(sh -c "cd '$WORK/repo' && python3 -c \"
+import sys; sys.path.insert(0, '$GHDIR')
+from ghlib import repo
+print(repo.nwo())
+\"")"
+
+check "--repo overrides the remote" "other/name" \
+  "$(env GH_REPO=other/name python3 -c "
+import sys; sys.path.insert(0, '$GHDIR')
+from ghlib import repo
+print(repo.nwo())
+")"
+
+check_status "an unknown subcommand exits 1" 1 \
+  env GH_TOKEN=x python3 "$GHDIR/gh.py" no-such-command
+
+check_status "no subcommand exits 1" 1 \
+  env GH_TOKEN=x python3 "$GHDIR/gh.py"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
