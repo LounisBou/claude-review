@@ -268,6 +268,19 @@ check "pr-url" "https://x/1" "$(render pr-url '{"html_url":"https://x/1"}')"
 check "pr-merge-status merged" "merged" "$(render pr-merge-status '{"state":"closed","merged":true}')"
 check "pr-merge-status open" "open" "$(render pr-merge-status '{"state":"open","merged":false}')"
 check "pr-merge-status closed" "closed" "$(render pr-merge-status '{"state":"closed","merged":false}')"
+
+# checks-status must be genuinely combined: pr-checks fetches both legacy
+# commit statuses and check runs, and the docs and the subcommand help both
+# call the result "combined". A repo relying on statuses (not check runs)
+# would otherwise read SUCCESS over a red CI. All check runs pass here; only
+# the legacy status fails.
+check "checks-status folds a failing commit status into the verdict" "FAILURE" \
+  "$(render checks-status '{"check_runs":[{"name":"build","status":"completed","conclusion":"success"}],"statuses":{"state":"failure","statuses":[{"state":"failure","context":"ci/legacy"}]}}' \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"])')"
+
+check "checks-status names the failing legacy status" "ci/legacy" \
+  "$(render checks-status '{"check_runs":[{"name":"build","status":"completed","conclusion":"success"}],"statuses":{"state":"failure","statuses":[{"state":"failure","context":"ci/legacy"}]}}' \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["failed_checks"][0])')"
 check "open-threads keeps only unresolved" "1" \
   "$(render open-threads '[{"id":"a","isResolved":false},{"id":"b","isResolved":true}]' | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
 check "resolve-status" "resolved" "$(render resolve-status '{"resolveReviewThread":{"thread":{"isResolved":true}}}')"

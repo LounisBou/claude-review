@@ -39,12 +39,24 @@ def _pr_merge_status(obj):
 
 
 def _checks_status(obj):
+    # "statuses" is the combined-status API's own response: {"state": ...,
+    # "statuses": [{"state": ..., "context": ...}, ...]}. Its inner list is
+    # what legacy commit statuses (as opposed to check runs) actually live in.
+    check_runs = obj.get("check_runs", [])
+    commit_statuses = (obj.get("statuses") or {}).get("statuses") or []
+
     failed = [
         run.get("name", "?")
-        for run in obj.get("check_runs", [])
+        for run in check_runs
         if run.get("conclusion") in ("failure", "timed_out", "cancelled")
+    ] + [
+        status.get("context", "?")
+        for status in commit_statuses
+        if status.get("state") in ("failure", "error")
     ]
-    pending = [run for run in obj.get("check_runs", []) if run.get("status") != "completed"]
+    pending = [run for run in check_runs if run.get("status") != "completed"] + [
+        status for status in commit_statuses if status.get("state") == "pending"
+    ]
     if failed:
         result = "FAILURE"
     elif pending:
