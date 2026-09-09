@@ -1,10 +1,10 @@
-"""Pull request reads."""
+"""Pull request reads, plus opening and merging one."""
 
 import base64
 import binascii
 import subprocess
 
-from . import errors, http, repo
+from . import bodies, errors, http, repo
 
 
 def _current_branch():
@@ -94,6 +94,28 @@ def file_at_ref(args):
     return {"path": args.path, "ref": args.ref, "content": raw, "binary": binary}
 
 
+def pr_create(args):
+    owner, name = repo.owner_repo()
+    payload = {
+        "title": args.title,
+        "head": args.head or _current_branch(),
+        "base": args.base,
+        "body": bodies.read(args.body_file) if args.body_file else "",
+    }
+    if not payload["head"]:
+        raise errors.UsageError("cannot determine the head branch; pass --head")
+    return http.rest("POST", "/repos/%s/%s/pulls" % (owner, name), payload)
+
+
+def pr_merge(args):
+    owner, name = repo.owner_repo()
+    return http.rest(
+        "PUT",
+        "/repos/%s/%s/pulls/%s/merge" % (owner, name, args.pr),
+        {"merge_method": args.method},
+    )
+
+
 def register(subparsers):
     parser = subparsers.add_parser("auth-check", help="verify the token works")
     parser.set_defaults(handler=auth_check)
@@ -122,3 +144,15 @@ def register(subparsers):
     parser.add_argument("path")
     parser.add_argument("ref")
     parser.set_defaults(handler=file_at_ref)
+
+    parser = subparsers.add_parser("pr-create", help="open a PR from the current branch")
+    parser.add_argument("--title", required=True)
+    parser.add_argument("--body-file", dest="body_file", default=None)
+    parser.add_argument("--base", default="main")
+    parser.add_argument("--head", default=None, help="defaults to the current branch")
+    parser.set_defaults(handler=pr_create)
+
+    parser = subparsers.add_parser("pr-merge", help="merge a PR")
+    parser.add_argument("pr", type=int)
+    parser.add_argument("--method", default="merge", choices=("merge", "squash", "rebase"))
+    parser.set_defaults(handler=pr_merge)

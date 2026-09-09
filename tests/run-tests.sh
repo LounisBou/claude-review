@@ -538,6 +538,47 @@ check "an existing asset is reused" "True" \
 
 check_status "a missing image exits 1" 1 gh3 image-upload "$WORK/absent.png"
 
+echo "== opening and merging a pull request =="
+
+printf '%s' '{"number":12,"html_url":"https://github.com/acme/thing/pull/12"}' \
+  > "$F3/POST_repos_acme_thing_pulls.json"
+printf 'Body from a file with `backticks`\n' > "$WORK/prbody.md"
+
+check "pr-create returns the new number" "12" \
+  "$(gh3 pr-create --title 'A title' --body-file "$WORK/prbody.md" --head feature-x --format pr-number)"
+
+# The title, base and head reach the request, and the body comes from the file.
+created=$(python3 -c "
+import json
+for line in open('$F3/sent.jsonl'):
+    row = json.loads(line)
+    if row['method'] == 'POST' and row['path'].endswith('/pulls'):
+        b = row['body']
+        print(b['title'], b['base'], b['head'], repr(b['body']))
+")
+check "pr-create sends title, base, head and the file body" \
+  "A title main feature-x 'Body from a file with \`backticks\`\n'" "$created"
+
+check_status "pr-create without a title exits 1" 1 gh3 pr-create --head feature-x
+
+printf '%s' '{"merged":true,"message":"Pull Request successfully merged"}' \
+  > "$F3/PUT_repos_acme_thing_pulls_7_merge.json"
+check "pr-merge reports the merge" "True" \
+  "$(gh3 pr-merge 7 --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["merged"])')"
+
+merged=$(python3 -c "
+import json
+for line in open('$F3/sent.jsonl'):
+    row = json.loads(line)
+    if row['method'] == 'PUT' and row['path'].endswith('/merge'):
+        print(row['body']['merge_method'])
+")
+check "pr-merge defaults to the merge method" "merge" "$merged"
+
+check_status "pr-merge rejects an unknown method" 1 gh3 pr-merge 7 --method fast-forward
+check_status "pr-merge rejects a non-numeric PR" 1 gh3 pr-merge abc
+
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
