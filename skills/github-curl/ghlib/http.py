@@ -57,7 +57,10 @@ def _fixture(slug):
 
 
 def _raise_for(status, data):
-    message = data.get("message", "request failed") if isinstance(data, dict) else "request failed"
+    # .get substitutes the default only for an absent key; GitHub sends
+    # "message": null on some error responses, and a present-but-null value
+    # would still reach message.lower() below and raise.
+    message = (data.get("message") or "request failed") if isinstance(data, dict) else "request failed"
     if status == 429 or (status in (401, 403) and "rate limit" in message.lower()):
         raise errors.RateLimited(message)
     if status in (401, 403):

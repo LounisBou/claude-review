@@ -230,6 +230,37 @@ raises "a 429 raises code 5"             429 "You have exceeded a secondary rate
 sent=$(wc -l < "$FIX/sent.jsonl" | tr -d ' ')
 check "records every request sent" "9" "$sent"
 
+# GitHub sends "message": null on some error responses. .get("message", ...)
+# substitutes its default only for an absent key, so a present null survives
+# to reach message.lower() unguarded and raises AttributeError -- inside the
+# error mapper itself, which is not a GhError and so prints as a bare
+# traceback. That line only runs for a 401/403, where the rate-limit check
+# short-circuits it for every other status.
+printf '%s' '{"__status":401,"message":null}' > "$FIX/GET_repos_acme_thing_err_nullmsg.json"
+
+check_status "a null message still maps to AuthError" 2 \
+  env GH_FIXTURES="$FIX" GH_TOKEN=x python3 -c "
+import sys; sys.path.insert(0, '$GHDIR')
+from ghlib import http, errors
+try:
+    http.rest('GET', '/repos/acme/thing/err/nullmsg')
+except errors.GhError as e:
+    sys.exit(e.code)
+sys.exit(0)
+"
+
+out=$(env GH_FIXTURES="$FIX" GH_TOKEN=x python3 -c "
+import sys; sys.path.insert(0, '$GHDIR')
+from ghlib import http, errors
+try:
+    http.rest('GET', '/repos/acme/thing/err/nullmsg')
+except errors.GhError as e:
+    print('error: ' + str(e.message))
+    sys.exit(e.code)
+" 2>&1)
+check "a null message prints an error line" "1" "$(printf '%s' "$out" | grep -c '^error:')"
+check "a null message has no traceback" "0" "$(printf '%s' "$out" | grep -cE 'Traceback|AttributeError')"
+
 # Test that _request survives non-JSON responses (like diffs).
 # Mock urllib.request.urlopen to return plain text, verify _request returns it as a string.
 result=$(python3 -c "
