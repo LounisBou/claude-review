@@ -2,7 +2,7 @@
 
 Repository: `github.com/LounisBou/claude-review`
 Plugin name: `pr-review` (this is the user-facing command/skill prefix)
-Status: design approved 2026-09-08, not yet implemented
+Status: design approved 2026-09-08; phase 1 implemented 2026-09-09 (see docs/plan-phase-1.md and the gaps recorded at the end of this file). Phases 2 and 3 not started.
 
 ## 1. Purpose
 
