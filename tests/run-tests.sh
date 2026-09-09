@@ -655,6 +655,14 @@ check "process-comments ships its helper scripts" "4" \
 
 echo "== install =="
 
+# commands/install.md and commands/doctor.md both tell the user to run
+# "${CLAUDE_PLUGIN_ROOT}/install.sh" directly, and their allowed-tools scope
+# Bash to that exact executable path. Invoking it through "/bin/bash" (as the
+# rest of this suite does, below) works regardless of the file's own mode and
+# would never catch a missing execute bit, so this checks the mode itself.
+check "install.sh is executable" "executable" \
+  "$([ -x "$ROOT/install.sh" ] && echo executable || echo not-executable)"
+
 mkdir -p "$WORK/cfg"
 printf '%s' '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":true}}' \
   > "$WORK/cfg/settings.json"
