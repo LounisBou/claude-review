@@ -611,6 +611,13 @@ printf '%s' '{"number":3,"title":"An issue"}' > "$F3/GET_repos_acme_thing_issues
 check "issue-view fetches the issue" "An issue" \
   "$(gh3 issue-view 3 --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["title"])')"
 
+# A non-numeric issue number must fail via argparse's own mapped usage exit,
+# like every other numeric positional, not an unguarded conversion or a raw
+# lookup miss inside the handler.
+check_status "issue-view with a non-numeric number exits 1" 1 gh3 issue-view abc
+out=$(gh3 issue-view abc 2>&1)
+check "non-numeric issue number has no traceback" "0" "$(printf '%s' "$out" | grep -cE 'Traceback|^[A-Za-z]*Error:')"
+
 printf '%s' '{"items":[{"number":9}]}' > "$F3/GET_search_issues__q=repo%3Aacme%2Fthing%20bug.json"
 check "issue-search queries the search API" "9" \
   "$(gh3 issue-search bug --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["items"][0]["number"])')"

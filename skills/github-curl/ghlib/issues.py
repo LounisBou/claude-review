@@ -47,7 +47,7 @@ def pr_linked_issues(args):
 
 def register(subparsers):
     parser = subparsers.add_parser("issue-view")
-    parser.add_argument("number")
+    parser.add_argument("number", type=int)
     parser.set_defaults(handler=issue_view)
 
     parser = subparsers.add_parser("issue-list")
