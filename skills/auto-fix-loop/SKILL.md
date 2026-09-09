@@ -26,6 +26,7 @@ the two exit conditions is met.
 pass_count = 0
 seen_issues = set()
 fix_log = []
+TEST_COMMAND = discover_test_command()  # see Step 1.5 — once, before the loop
 
 LOOP:
   pass_count += 1
@@ -53,9 +54,12 @@ LOOP:
       else:
           mark as SKIP (suggestion/ambiguous)
 
-  # Run tests after fixes
-  if tests fail:
-      revert last commit, add to seen_issues
+  # Run tests after fixes — but only if a real test command was found.
+  # TEST_COMMAND == UNDETERMINED is not a failing test run: it means there is
+  # nothing to run, and that must never trigger a revert.
+  if TEST_COMMAND != UNDETERMINED:
+      if TEST_COMMAND fails:
+          revert last commit, add to seen_issues
 
   # MANDATORY: go back to LOOP — do NOT stop here
   # Even if all findings were SKIP, the pass counter increments
@@ -96,8 +100,56 @@ The ONLY way to confirm "clean" is to run the review and get zero findings.
 - Set MAX_PASSES = 5
 - Initialize seen_issues = set()
 - Initialize fix_log = []
+- Determine TEST_COMMAND (see Step 1.5) — once, before entering the loop
 - Display: "Starting review-fix loop (max 5 passes)"
 ```
+
+### Step 1.5: Determine the Test Command (once, before the loop)
+
+**This plugin targets many repositories, most of them not Python.** `python -m pytest tests/ -x -q`
+is a Python-project assumption, not a universal fact. In a Vue, PHP, Go, or Rust
+repo that command is simply absent: it exits non-zero because the shell
+cannot find `pytest`, not because a test failed — and treating that as a
+failing test run means Step 6 reverts a good commit every single pass and
+reports it as an ordinary loop iteration. **A missing test runner must never
+look like a failing test.**
+
+Discover the command instead of assuming it, in this order:
+
+1. **The project's own documented convention wins.** Look for an explicit
+   test command in `CLAUDE.md`, `README.md`, or `package.json`/`composer.json`
+   scripts (a `"test"` entry). If one is documented, use it verbatim.
+2. **Otherwise, detect from project files** (first match wins):
+
+   | Found in the repo                                          | Command                  |
+   | ----------------------------------------------------------- | ------------------------ |
+   | `package.json` with a `"test"` script, `yarn.lock` present  | `yarn test`               |
+   | `package.json` with a `"test"` script, `pnpm-lock.yaml`     | `pnpm test`               |
+   | `package.json` with a `"test"` script (npm otherwise)       | `npm test`                |
+   | `composer.json` with a `"test"` script                       | `composer test`           |
+   | `phpunit.xml` or `phpunit.xml.dist`                          | `vendor/bin/phpunit`      |
+   | `pyproject.toml` (`[tool.pytest...]`), `pytest.ini`, or `setup.cfg` (`[tool:pytest]`) | `python -m pytest` |
+   | `Gemfile` referencing `rspec`                                | `bundle exec rspec`       |
+   | `go.mod`                                                     | `go test ./...`           |
+   | `Cargo.toml`                                                 | `cargo test`              |
+   | `Makefile` with a `test:` target                             | `make test`               |
+
+3. **If nothing above matches, `TEST_COMMAND = UNDETERMINED`.** Tell the user
+   once, on the first pass only: "No test command could be determined for
+   this project — proceeding without a test gate. Fixes will be committed
+   without automated verification." Do not ask for confirmation; this is
+   informational, not a stop condition.
+
+Run this discovery exactly once per invocation of the skill, before Step 2,
+and reuse the result for every pass — do not re-detect on each loop
+iteration, and do not fall back to `pytest` at any point if detection finds
+nothing.
+
+**If the detected command itself is unusable** (e.g. the interpreter or
+binary is not on `PATH` — a "command not found" exit, not a test failure),
+treat that the same as `UNDETERMINED` for the rest of the run: warn the user
+once and stop gating on tests, rather than reverting every subsequent pass
+because the tool to run tests does not exist.
 
 ### Step 2: Increment pass counter and check safety limit
 
@@ -148,12 +200,21 @@ For each finding, in order of severity (Critical first):
 
 ### Step 6: Run tests and loop back
 
-Run tests: `python -m pytest tests/ -x -q`
+**If `TEST_COMMAND == UNDETERMINED`** (Step 1.5 found nothing to run): skip
+testing entirely for this pass. This is not a failure — do not revert
+anything on this basis, and do not re-attempt discovery mid-loop.
 
-If tests fail:
+**Otherwise, run `TEST_COMMAND`.**
+
+If it exits non-zero because the tests themselves failed:
 - Revert: `git revert HEAD --no-edit`
 - Add the reverted issue to `seen_issues`
 - Do NOT exit — continue
+
+If it exits non-zero because the command itself could not run (interpreter
+or binary not found, not a test assertion failure): do not revert — that is
+an absence-of-tooling signal, not a failing test. Warn the user once, set
+`TEST_COMMAND = UNDETERMINED` for the remainder of this run, and continue.
 
 **MANDATORY: Go back to Step 2.** Do not stop. Do not display a summary.
 Do not ask the user anything. Go directly to Step 2.
