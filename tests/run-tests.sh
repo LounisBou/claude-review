@@ -152,8 +152,8 @@ print(http.rest('GET', '/repos/acme/thing/pulls/42')['title'])
 check "reads a fixture instead of the network" "A title" "$out"
 
 # Pagination: two pages joined into a single list.
-printf '%s' '[{"id":1}]' > "$FIX/GET_repos_acme_thing_pulls_42_comments.json"
-printf '%s' '[{"id":2}]' > "$FIX/GET_repos_acme_thing_pulls_42_comments__page=2.json"
+printf '%s' '[{"id":1}]' > "$FIX/GET_repos_acme_thing_pulls_42_comments__per_page=1.json"
+printf '%s' '[{"id":2}]' > "$FIX/GET_repos_acme_thing_pulls_42_comments__per_page=1&page=2.json"
 # GH_PAGE_SIZE=1 makes a one-item page a full page, so a second is fetched.
 # The third request finds no fixture, returns nothing, and ends the loop.
 out=$(env GH_FIXTURES="$FIX" GH_TOKEN=x GH_PAGE_SIZE=1 python3 -c "
@@ -162,6 +162,21 @@ from ghlib import http
 print(len(http.rest('GET', '/repos/acme/thing/pulls/42/comments', paginate=True)))
 ")
 check "paginates until a short page" "2" "$out"
+
+# The bug this guards against: GitHub's own default page size is 30, not the
+# value the loop compares chunk lengths against. Without per_page on every
+# request, a full 30-item first page still looks "short" against the default
+# size of 100 and pagination silently truncates with no signal. Assert on the
+# transmitted paths themselves, not on a page count that a fixture can fake.
+paths=$(python3 -c "
+import json
+rows = [json.loads(line) for line in open('$FIX/sent.jsonl')]
+matches = [r['path'] for r in rows if r['path'].startswith('/repos/acme/thing/pulls/42/comments')]
+print('|'.join(matches[:2]))
+")
+check "paginated requests carry per_page" \
+  "/repos/acme/thing/pulls/42/comments?per_page=1|/repos/acme/thing/pulls/42/comments?per_page=1&page=2" \
+  "$paths"
 
 # Each HTTP status maps to its own exit code.
 raises() {  # raises <name> <status> <message> <expected-exit>
@@ -300,7 +315,7 @@ check "pr-get resolves the branch PR number" "7" "$(gh pr-get --branch feature-x
 printf '%s' '{"number":7,"state":"closed","merged":true}' > "$F2/GET_repos_acme_thing_pulls_7.json"
 check "pr-status reports merged" "merged" "$(gh pr-status 7 --format pr-merge-status)"
 
-printf '%s' '[{"id":11,"body":"hello","user":{"login":"bob"}}]' > "$F2/GET_repos_acme_thing_issues_7_comments.json"
+printf '%s' '[{"id":11,"body":"hello","user":{"login":"bob"}}]' > "$F2/GET_repos_acme_thing_issues_7_comments__per_page=100.json"
 check "pr-issue-comments returns the comments" "11" \
   "$(gh pr-issue-comments 7 --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')"
 
@@ -401,12 +416,12 @@ check_status "an invalid event exits 1 as a usage error" 1 gh3 review-submit 7 -
 echo "== pr content =="
 
 printf '%s' '[{"filename":"src/a.py","status":"modified","patch":"@@ -1 +1 @@"}]' \
-  > "$F3/GET_repos_acme_thing_pulls_7_files.json"
+  > "$F3/GET_repos_acme_thing_pulls_7_files__per_page=100.json"
 check "pr-files lists changed paths" "src/a.py" \
   "$(gh3 pr-files 7 --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["filename"])')"
 
 # pr-commits: returns a list
-printf '%s' '[{"sha":"abc123","message":"Fix bug"}]' > "$F3/GET_repos_acme_thing_pulls_7_commits.json"
+printf '%s' '[{"sha":"abc123","message":"Fix bug"}]' > "$F3/GET_repos_acme_thing_pulls_7_commits__per_page=100.json"
 check "pr-commits returns commits list" "abc123" \
   "$(gh3 pr-commits 7 --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["sha"])')"
 

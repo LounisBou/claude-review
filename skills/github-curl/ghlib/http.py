@@ -135,7 +135,11 @@ def rest(method, path, body=None, paginate=False, accept="application/vnd.github
     size = int(os.environ.get("GH_PAGE_SIZE", "100"))
     while True:
         sep = "&" if "?" in path else "?"
-        suffix = "" if page == 1 else "%spage=%d" % (sep, page)
+        # per_page must travel on every request: GitHub's own default is 30,
+        # not the value this loop compares chunk lengths against, so without
+        # it a full-size first page still looks short and pagination silently
+        # truncates.
+        suffix = "%sper_page=%d" % (sep, size) if page == 1 else "%sper_page=%d&page=%d" % (sep, size, page)
         chunk = _call(method, path + suffix, body, accept)
         if not chunk:
             break
