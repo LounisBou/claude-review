@@ -614,6 +614,35 @@ stale=$(grep -rn '\.claude/skills/' "$ROOT/skills" 2>/dev/null || true)
 check "no relative skill paths" "" "$stale"
 
 
+echo "== extracted skills =="
+
+for skill in start-review auto-fix-loop process-comments; do
+  doc="$ROOT/skills/$skill/SKILL.md"
+
+  check "$skill frontmatter names itself" "$skill" \
+    "$(awk '/^name:/ {print $2; exit}' "$doc" 2>/dev/null)"
+
+  check "$skill runs the preflight first" "1" \
+    "$(grep -c 'scripts/preflight.sh' "$doc" 2>/dev/null || echo 0)"
+
+  # The old fake namespace is gone, except for the upstream command this plugin
+  # legitimately depends on.
+  check "$skill drops the old namespace" "" \
+    "$(grep -o 'pr-review-toolkit:[a-z-]*' "$doc" 2>/dev/null | grep -v 'pr-review-toolkit:review-pr' || true)"
+
+  # Prose in a shipped plugin must not name one human language as the reader's.
+  check "$skill hard-codes no language" "" \
+    "$(grep -o 'French' "$doc" 2>/dev/null || true)"
+
+  # Paths must be plugin-relative, never relative to a project's .claude directory.
+  check "$skill uses plugin-root paths" "" \
+    "$(grep -o '\.claude/skills/[a-z-]*' "$doc" 2>/dev/null || true)"
+done
+
+check "process-comments ships its helper scripts" "4" \
+  "$(ls "$ROOT/skills/process-comments/scripts/" 2>/dev/null | grep -c '\.py$')"
+
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
