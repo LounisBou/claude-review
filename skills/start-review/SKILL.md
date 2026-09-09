@@ -267,7 +267,7 @@ If you catch yourself thinking:
 
 1. **Post the English version. Always.** Never ask the user which language — see Language Rules.
 2. Post as an **inline comment on the cited file and line** where the anchor is inside the PR diff; fall back to a top-level PR comment when the line is outside the diff (a migration filename, a missing test) — and say which you used.
-3. Use the `github-curl` skill for the GitHub API — `gh api` fails in the sandbox. That skill has no inline-comment subcommand, so `POST /repos/{owner}/{repo}/pulls/{pr}/comments` goes through `curl` directly with `body`, `commit_id` (the PR head SHA), `path`, `line`, `side: "RIGHT"`. Build the payload with `python3` into a file and send it with `--data-binary @file` — inline JSON breaks on shell escaping. Every `curl` needs `--connect-timeout 10 --max-time 30` or the call is blocked.
+3. Use the `github-curl` skill for the GitHub API — `gh api` fails in the sandbox, and so does hand-built `curl`: `github-curl`'s `gh.py` already covers both destinations, so never call `curl` directly here. For the inline case, write a one-element JSON array of `{"path": ..., "line": ..., "side": "RIGHT", "body": "..."}` to a file with `python3`'s `json.dump` (so markdown special characters are escaped correctly, not hand-quoted) and submit it as a review: `python3 "${CLAUDE_PLUGIN_ROOT}/skills/github-curl/gh.py" review-submit <PR> --event COMMENT --comments-file <file>`. For the top-level fallback, write the body to its own file and use `python3 "${CLAUDE_PLUGIN_ROOT}/skills/github-curl/gh.py" pr-comment <PR> --body-file <file>` instead.
 4. Confirm with the posted URL.
 5. **WAIT** — do not auto-advance.
 
