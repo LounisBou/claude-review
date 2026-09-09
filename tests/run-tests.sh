@@ -766,6 +766,19 @@ for skill in start-review auto-fix-loop process-comments; do
   check "$skill hard-codes no language" "" \
     "$(grep -o 'French' "$doc" 2>/dev/null || true)"
 
+  # The word "French" not appearing proves nothing if the doc is simply
+  # written in French without ever naming the language (a "🇫🇷 Français"
+  # heading, or an untranslated template) -- this caught nothing on the
+  # original document despite nine French markers sitting in it. Check for
+  # actual French prose instead: any accented Latin character at all (plain
+  # English technical writing has none), plus a handful of common French
+  # words that do not occur in English technical writing.
+  check "$skill has no French accented characters" "" \
+    "$(grep -o '[àâäéèêëïîôöùûüçÀÂÄÉÈÊËÏÎÔÖÙÛÜÇœŒ]' "$doc" 2>/dev/null | sort -u | tr '\n' ',' || true)"
+
+  check "$skill has no common French words" "" \
+    "$(grep -Eiow 'vous|nous|avec|chemin|fichier|sont|une|titre' "$doc" 2>/dev/null | sort -u | tr '\n' ',' || true)"
+
   # Paths must be plugin-relative, never relative to a project's .claude directory.
   check "$skill uses plugin-root paths" "" \
     "$(grep -o '\.claude/skills/[a-z-]*' "$doc" 2>/dev/null || true)"

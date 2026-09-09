@@ -132,18 +132,18 @@ Review agents report plausible findings, not verified ones. Before an item reach
 Display a numbered list, grouped by severity, in the user's language:
 
 ```
-## TODO de review — <repo>#<PR>
+## Review TODO — <repo>#<PR>
 
-### Bloquants / Majeurs
-- [ ] #1: <résumé en une ligne> — `chemin/fichier.php:132`
-- [ ] #2: <résumé en une ligne> — `chemin/fichier.php:37`
+### Blocking / Major
+- [ ] #1: <one-line summary> — `path/file.php:132`
+- [ ] #2: <one-line summary> — `path/file.php:37`
 
-### Mineurs / Info
-- [ ] #3: <résumé en une ligne> — `chemin/fichier.php:16`
+### Minor / Info
+- [ ] #3: <one-line summary> — `path/file.php:16`
 
-Écartés après vérification : <liste courte + raison>
+Dropped after verification: <short list + reason>
 
-On commence par le #1...
+Starting with #1...
 ```
 
 ---
@@ -155,53 +155,53 @@ For EACH item, output exactly these eight blocks, in this order, in the user's l
 ### The 8-block item format
 
 ````
-## Item #N — <titre court>
+## Item #N — <short title>
 
-### 1. Fichier et ligne
-`chemin/vers/fichier.php:132` — <sur quelle ligne exactement poser le commentaire dans la PR,
-et pourquoi celle-là : la ligne du défaut, pas la ligne du symptôme>
+### 1. File and line
+`path/to/file.php:132` — <exactly which line to anchor the PR comment on,
+and why that one: the line of the defect, not the line of the symptom>
 
-### 2. Sévérité
-**BLOQUANT** | **MAJEUR** | **MINEUR** | **INFO** — <une phrase justifiant le niveau>
+### 2. Severity
+**BLOCKING** | **MAJOR** | **MINOR** | **INFO** — <one sentence justifying the level>
 
-### 3. Explication
+### 3. Explanation
 <What the code does today, in the user's language, with the relevant excerpt.
-Factuel : ce qui est écrit, pas ce qu'on en pense encore.>
+Factual: what is written, not what anyone thinks of it yet.>
 
-### 4. Pourquoi c'est un problème
-<L'argumentaire. Un scénario CONCRET : entrées, état, ce qui casse, qui le subit.
-Pas de « ça pourrait poser problème » — le chemin d'exécution exact.>
+### 4. Why it's a problem
+<The argument. A CONCRETE scenario: inputs, state, what breaks, who is affected.
+No "this could cause issues" — the exact execution path.>
 
-### 5. Avis
-<Position assumée de l'agent : est-ce un vrai défaut, un choix de conception à
-questionner, ou une préférence ? Niveau de confiance et ce sur quoi il repose.
-Si l'auteur a probablement une raison, le dire.>
+### 5. Opinion
+<The agent's own position: is this a genuine defect, a design choice worth
+questioning, or a preference? Confidence level and what it rests on.
+If the author likely had a reason, say so.>
 
-### 6. Proposition de correction
+### 6. Proposed fix
 ```php
-// Avant (ligne 132)
-<code actuel>
+// Before (line 132)
+<current code>
 
-// Après
-<code proposé>
+// After
+<proposed code>
 ```
-<Une phrase sur ce que le correctif change, et ce qu'il ne couvre pas.>
+<One sentence on what the fix changes, and what it does not cover.>
 
-### 7. Portée
-<Ce que l'item NE couvre pas et qui mérite un item ou une PR à part.
-Omettre ce bloc s'il n'y a rien à isoler.>
+### 7. Scope
+<What this item does NOT cover and deserves its own item or a separate PR.
+Omit this block if there is nothing to carve out.>
 
-### 8. Commentaire proposé pour le développeur
+### 8. Proposed comment for the developer
 
-**🇫🇷 Français**
-> <4 à 6 lignes. Le défaut, un scénario, une proposition. Rien d'autre.>
+**In the user's language**
+> <4 to 6 lines. The defect, a scenario, a proposal. Nothing else.>
 
-**🇬🇧 English**
+**In English**
 > <Same comment, same length, in English.>
 
 ---
 
-**Options :** `post` (poster le commentaire) · `fix` (appliquer le correctif) · `next` (passer) · ou pose une question.
+**Options:** `post` (publish the comment) · `fix` (apply the correction) · `next` (move on) · or ask a question.
 ````
 
 ### Writing the draft comment (block 8)
@@ -276,7 +276,7 @@ If you catch yourself thinking:
 ## After "fix"
 
 1. Apply the change with the Edit tool.
-2. Confirm: "Corrigé. Item #N terminé." Do NOT commit unless asked.
+2. Confirm, in the user's language: "Fixed. Item #N done." Do NOT commit unless asked.
 3. **WAIT** — do not auto-advance.
 
 ---
@@ -294,19 +294,19 @@ If you catch yourself thinking:
 When every item has been handled:
 
 ```
-## Walkthrough terminé
+## Walkthrough complete
 
-### Commentés (2)
-- #1: <titre> — <URL>
-- #3: <titre> — <URL>
+### Commented (2)
+- #1: <title> — <URL>
+- #3: <title> — <URL>
 
-### Corrigés (1)
-- #2: <titre>
+### Fixed (1)
+- #2: <title>
 
-### Passés (1)
-- #4: <titre> — écarté par l'utilisateur
+### Skipped (1)
+- #4: <title> — dropped by the user
 
-<Si des correctifs ont été appliqués : proposer le commit. Sinon, rien à faire.>
+<If any fixes were applied: offer to commit them. Otherwise, nothing to do.>
 ```
 
 ---
@@ -340,8 +340,8 @@ When every item has been handled:
 2. Verify each finding against the code; drop the unverifiable and the YAGNI
 3. Create the numbered TODO list, grouped by severity, in the user's language
 4. For each item, render the 8 blocks:
-   1) fichier:ligne  2) sévérité  3) explication  4) pourquoi c'est un problème
-   5) avis  6) proposition de correction  7) portée  8) commentaire FR + EN
+   1) file:line  2) severity  3) explanation  4) why it's a problem
+   5) opinion  6) proposed fix  7) scope  8) comment in the user's language + English
 5. WAIT for post / fix / next
 6. Summarize at the end
 ```
