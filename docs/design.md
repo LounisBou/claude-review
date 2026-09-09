@@ -264,3 +264,39 @@ Affected repositories: `geonative-api`, `geonative-api-bis`,
 - The `norms:*` and `implement:*` skills that also live in these repos; they are a
   separate concern and would widen this plugin past PR review.
 - Migrating anything before the plugin is built, tested and validated.
+
+## Known gaps at the end of phase 1
+
+The suite is offline by construction, so nothing here demonstrates that a real call
+to GitHub succeeds. Naming that plainly is what makes the first live run in phase 2
+a test rather than a formality.
+
+**Never exercised against the real API.** Every response in the suite comes from a
+fixture file. No token has been used, no repository written to, no rate limit hit.
+The first live run should cover at least: `auth-check`, `pr-get`, `pr-threads`,
+`pr-comment` with a body containing backticks, and `image-upload` twice on the same
+file to confirm the second is a no-op.
+
+**`pr-diff`'s media type.** The transport now returns a plain-text body unparsed, but
+only a mocked `urlopen` has ever produced one. GitHub's actual `application/vnd.github.v3.diff`
+response has not been seen.
+
+**Orphan-branch creation.** `image-upload` creates the `pr-assets` branch when it is
+absent — a write to the user's repository — and no committed test exercises that
+path; the fixtures always present an existing branch. Verified by reading only.
+
+**Task 11 has no independent review.** Three reviewers stalled in succession, and its
+findings in the ledger are the controller's own reading rather than a second opinion.
+It is the only task in the phase closed this way.
+
+**The three extracted skills are checked structurally, not behaviourally.** The suite
+asserts their frontmatter, their preflight call, their namespace and their paths. It
+does not run them. Whether the adapted `process-comments` still works end to end is a
+phase 2 question.
+
+**Deferred minors worth triaging before merge.** `label-remove` accepts several label
+names, sends one DELETE and drops the rest silently — the parser advertises `nargs="+"`
+while GitHub deletes one per call; either narrow the interface or loop. `pr_ready`'s
+`node_id` guard has no regression test. `--repo ""` is treated as no override rather
+than rejected. The retry loop retries every 403, not only rate-limited ones, so a
+permission failure waits about three seconds before reporting.
