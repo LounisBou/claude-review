@@ -49,6 +49,14 @@ except (OSError, ValueError, KeyError, TypeError):
 print(" ".join(k for k in required if enabled.get(k) is not True))
 PY
 )
+  py_status=$?
+  # If the interpreter dies before printing (crash, killed, bad python3),
+  # $missing is empty exactly like the "nothing is missing" case, and the
+  # guard would otherwise PASS on no evidence at all -- in the one script
+  # whose only job is to catch a missing dependency.
+  if [ "$py_status" -ne 0 ]; then
+    die "could not check plugin dependencies (python3 exited $py_status)" "check your python3 installation and try again" 10
+  fi
   if [ -n "$missing" ]; then
     for dep in $missing; do
       printf 'error: required plugin not installed or not enabled: %s\n' "$dep" >&2

@@ -122,6 +122,33 @@ check "top-level array produces error lines" "2" "$error_lines"
 check "top-level array produces fix lines" "2" "$fix_lines"
 check "top-level array has no traceback" "0" "$traceback_lines"
 
+# A python3 that dies before printing anything is exactly the "missing"
+# variable being empty, which reads the same as "nothing is missing" unless
+# the interpreter's own exit code is checked. A fake python3 stands in: it
+# behaves like the real one for the earlier version check (invoked as
+# "python3 -", one argument) and dies silently for the dependency check
+# (invoked as "python3 - $SETTINGS", two arguments).
+mkdir -p "$WORK/pybin"
+cat > "$WORK/pybin/python3" <<'FAKEPY'
+#!/bin/sh
+cat >/dev/null
+if [ $# -le 1 ]; then
+  exit 0
+fi
+exit 1
+FAKEPY
+chmod +x "$WORK/pybin/python3"
+
+settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":true}}'
+check_status "a crashing python3 exits 10, not 0" 10 \
+  env HOME="$WORK" PR_REVIEW_SETTINGS="$WORK/cfg/settings.json" PR_REVIEW_SKIP_AUTH=1 PATH="$WORK/pybin:$PATH" \
+    sh -c "cd '$WORK/repo' && bash '$ROOT/scripts/preflight.sh'"
+
+output=$(env HOME="$WORK" PR_REVIEW_SETTINGS="$WORK/cfg/settings.json" PR_REVIEW_SKIP_AUTH=1 PATH="$WORK/pybin:$PATH" \
+  sh -c "cd '$WORK/repo' && bash '$ROOT/scripts/preflight.sh'" 2>&1)
+check "a crashing python3 prints an error line" "1" "$(printf '%s' "$output" | grep -c '^error:')"
+check "a crashing python3 prints a fix line" "1" "$(printf '%s' "$output" | grep -c '^fix:')"
+
 echo "== preflight: GitHub token =="
 
 # Missing token, missing gh
