@@ -90,18 +90,19 @@ If you catch yourself thinking any of these, STOP:
 
 ### GitHub API Scripts
 
-All GitHub API calls use the `github-curl` skill scripts. **Find the correct path first:**
+All GitHub API calls use the `github-curl` skill's `gh.py`. Inside a plugin the
+path is always `${CLAUDE_PLUGIN_ROOT}` — there is no project-vs-home lookup to
+do. Define the two paths once, at the top of the first bash block:
 
 ```bash
-# Find github-curl scripts (check project .claude/ first, then home ~/.claude/)
-if [ -f "${CLAUDE_PLUGIN_ROOT}/skills/github-curl/gh.py" ]; then
-  GH_SCRIPTS="${CLAUDE_PLUGIN_ROOT}/skills/github-curl"
-elif [ -f "$HOME/${CLAUDE_PLUGIN_ROOT}/skills/github-curl/gh.py" ]; then
-  GH_SCRIPTS="$HOME/${CLAUDE_PLUGIN_ROOT}/skills/github-curl"
-else
-  echo "ERROR: github-curl scripts not found" >&2; exit 1
-fi
+GH="${CLAUDE_PLUGIN_ROOT}/skills/github-curl/gh.py"
+SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
 ```
+
+`gh.py` takes no JSON on stdin. Every call below either names a real
+subcommand (optionally with `--format <name>` to shape its own output) or
+runs one of the helper scripts in `$SKILL_DIR` against files already written
+to disk.
 
 ### Step 0: Parallel Data Fetch (SPEED CRITICAL)
 
@@ -114,42 +115,72 @@ fi
 **Phase 1 — Auth + PR (sequential, needed for PR_NUM):**
 
 ```bash
-SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
+# A unique, per-run directory: concurrent runs of this skill (two PRs, two
+# terminals) must not overwrite each other's files, and the directory must
+# exist before the first write lands in it.
+export PR_REVIEW_TMP="/tmp/claude-pr-review-$$"
+mkdir -p "$PR_REVIEW_TMP"
+
 python3 "$GH" auth-check --format error-check
-python3 "$GH" pr-get > /tmp/claude/pr.json
-PR_NUM=$(python3 "$GH_SCRIPTS/gh.py" pr-number < /tmp/claude/pr.json)
+python3 "$GH" pr-get --format raw > "$PR_REVIEW_TMP/pr.json"
+PR_NUM=$(python3 "$GH" pr-get --format pr-number)
 USER_LOGIN=$(python3 "$SKILL_DIR/extract_user_login.py")
 ```
 
 **If PR_NUM is empty:** Tell the user there is no PR associated with the current branch and stop.
 
-**Phase 2 — Fetch ALL data in parallel (4 Bash calls in ONE message):**
+**Phase 2 — Fetch ALL data in parallel (3 Bash calls in ONE message):**
 
 ```bash
-# Call 1: review threads (inline code comments)
-python3 "$GH" pr-threads "$PR_NUM" > /tmp/claude/threads.json
+# Call 1: issue comments (general PR conversation)
+python3 "$GH" pr-issue-comments "$PR_NUM" --format raw > "$PR_REVIEW_TMP/issue-comments.json"
 
-# Call 2: issue comments (general PR conversation)
-python3 "$GH" pr-issue-comments "$PR_NUM" > /tmp/claude/issue-comments.json
+# Call 2: review body comments (text submitted with a review action)
+python3 "$GH" pr-reviews "$PR_NUM" --format raw > "$PR_REVIEW_TMP/reviews.json"
 
-# Call 3: review body comments (text submitted with a review action)
-python3 "$GH" pr-reviews "$PR_NUM" > /tmp/claude/reviews.json
-
-# Call 4: read CLAUDE.md + norms.md (use Read tool in parallel)
+# Call 3: read CLAUDE.md + norms.md (use Read tool in parallel)
 ```
+
+Review threads (inline code comments) are fetched directly in the filtered
+shape needed below — `pr-threads` has no raw dump to keep around, since
+nothing downstream of this skill reads the unfiltered thread list.
 
 **Phase 3 — Filter to open comments only:**
 
 ```bash
-# Review threads: filter to unresolved
-python3 "$GH_SCRIPTS/gh.py" open-threads < /tmp/claude/threads.json > /tmp/claude/open-threads.json
+# Review threads: the "open-threads" formatter applies at fetch time — there
+# is no local "threads.json" to filter, because gh.py always calls the live
+# API; it never reads a formatter's input from a file.
+python3 "$GH" pr-threads "$PR_NUM" --format open-threads > "$PR_REVIEW_TMP/open-threads.json"
 
-# Issue comments: batch resolve check (1 GraphQL call), then filter out resolved
-python3 "$GH" comments-resolved-batch /tmp/claude/issue-comments.json > /tmp/claude/resolved-batch.json
-python3 "$GH_SCRIPTS/gh.py" open-issue-comments /tmp/claude/resolved-batch.json < /tmp/claude/issue-comments.json > /tmp/claude/open-issue-comments.json
+# Issue comments: gh.py and its formatters have no "open-issue-comments"
+# concept — resolving an issue comment means checking GraphQL isMinimized per
+# node id (comments-resolved-batch), then cross-referencing that against the
+# comment list, which is not something any subcommand or formatter does. Do
+# the extraction and the cross-reference locally instead of inventing a
+# gh.py subcommand for it. (No `!=` below, so this is safe to run inline.)
+python3 -c "
+import json
+comments = json.load(open('$PR_REVIEW_TMP/issue-comments.json'))
+ids = [c['node_id'] for c in comments if c.get('node_id')]
+json.dump(ids, open('$PR_REVIEW_TMP/issue-comment-ids.json', 'w'))
+"
+python3 "$GH" comments-resolved-batch "$PR_REVIEW_TMP/issue-comment-ids.json" > "$PR_REVIEW_TMP/resolved-batch.json"
+python3 -c "
+import json
+comments = json.load(open('$PR_REVIEW_TMP/issue-comments.json'))
+resolved = json.load(open('$PR_REVIEW_TMP/resolved-batch.json'))
+def is_minimized(comment):
+    entry = resolved.get(comment.get('node_id')) or {}
+    node = entry.get('node') or {}
+    return bool(node.get('isMinimized'))
+open_comments = [c for c in comments if not is_minimized(c)]
+json.dump(open_comments, open('$PR_REVIEW_TMP/open-issue-comments.json', 'w'), indent=2)
+print('Open issue comments:', len(open_comments))
+"
 ```
 
-After this phase, `/tmp/claude/open-issue-comments.json` contains ONLY open (non-resolved) issue comments. **Use this file for all downstream operations** (summary, images, TODO list). Resolved issue comments are gone — they will never appear in the TODO list.
+After this phase, `$PR_REVIEW_TMP/open-issue-comments.json` contains ONLY open (non-resolved) issue comments. **Use this file for all downstream operations** (summary, images, TODO list). Resolved issue comments are gone — they will never appear in the TODO list.
 
 ```bash
 # Reviews: filter to those with non-empty body, excluding PR author's own reviews
@@ -159,10 +190,28 @@ python3 "$SKILL_DIR/filter_reviews.py" "$USER_LOGIN"
 **Phase 4 — Display summaries:**
 
 ```bash
-python3 "$GH_SCRIPTS/gh.py" thread-summary < /tmp/claude/threads.json
-python3 "$GH_SCRIPTS/gh.py" issue-comments-summary < /tmp/claude/open-issue-comments.json
-python3 "$GH_SCRIPTS/gh.py" reviews-summary < /tmp/claude/reviews.json
-python3 "$GH_SCRIPTS/gh.py" pr-details < /tmp/claude/pr.json
+# thread-summary and pr-details are formatters on a live fetch, per the
+# pattern above — one call each, no intermediate file needed.
+python3 "$GH" pr-threads "$PR_NUM" --format thread-summary
+python3 "$GH" pr-get --format pr-details
+
+# issue-comments-summary exists as a formatter but, like open-threads above,
+# gh.py can only apply it to a fresh API response, not to the local
+# open-issue-comments.json this skill just built. Reuse the formatter
+# function itself (read-only import of github-curl, not a modification of
+# it) against the filtered file instead of re-fetching every comment again:
+python3 -c "
+import sys, json
+sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/skills/github-curl')
+from ghlib import fmt
+comments = json.load(open('$PR_REVIEW_TMP/open-issue-comments.json'))
+print(fmt.render('issue-comments-summary', comments))
+"
+
+# There is no "reviews-summary" formatter anywhere in github-curl — this
+# capability does not exist. Do not invent one. Read the count already
+# printed by filter_reviews.py above, and rely on Step 3 to show each review
+# body comment in full; skip a summary table for this category.
 ```
 
 ### Step 1: Triage — Announce the Workload FIRST (MANDATORY)
@@ -170,7 +219,7 @@ python3 "$GH_SCRIPTS/gh.py" pr-details < /tmp/claude/pr.json
 **Before building any context, count the open comments and tell the user.** The user must never wait through the full setup without knowing how much work there actually is.
 
 ```bash
-python3 "$SKILL_DIR/count_open.py"
+python3 "$SKILL_DIR/count_open.py" "$USER_LOGIN"
 ```
 
 Immediately output one line, before any further tool call:
@@ -213,11 +262,26 @@ python3 "$SKILL_DIR/extract_paths.py"
 
 **Auto-pass detection:** For each open review thread, check if last `comments.nodes[].author.login == USER_LOGIN`. If user is last reply → mark as auto-passed (awaiting reviewer). **Only auto-pass if user is the LAST to reply.**
 
-**Image pre-download:** Extract image URLs from open issue comments and download with auth:
+**Image pre-download:** There is no `issue-comment-images` subcommand or formatter in github-curl — extracting embedded image URLs from comment bodies is plain text scanning, not a GitHub API call, so it does not belong in gh.py. Do it locally and download with auth. (This snippet avoids both `!=` and a literal `!`, since the Bash tool's own escaping of `!` would corrupt a markdown `![...]` pattern just as it corrupts `!=`; matching on file extension and on GitHub's known image hosts instead sidesteps that entirely.)
 
 ```bash
-python3 "$GH_SCRIPTS/gh.py" issue-comment-images < /tmp/claude/open-issue-comments.json
-# For each URL: curl -sL -H "Authorization: Bearer $GH_TOKEN" -o /tmp/claude/img_N.png "$URL"
+python3 -c "
+import json, re
+comments = json.load(open('$PR_REVIEW_TMP/open-issue-comments.json'))
+pattern = re.compile(r'https?://\S+')
+image_hosts = ('user-images.githubusercontent.com', 'github.com/user-attachments')
+image_exts = ('.png', '.jpg', '.jpeg', '.gif', '.webp')
+urls = []
+for c in comments:
+    body = c.get('body') or ''
+    for url in pattern.findall(body):
+        url = url.rstrip('.,)')
+        if url.lower().endswith(image_exts) or any(host in url for host in image_hosts):
+            urls.append(url)
+for url in dict.fromkeys(urls):
+    print(url)
+"
+# For each URL printed above: curl -sL -H "Authorization: Bearer $GH_TOKEN" --connect-timeout 10 --max-time 30 -o "$PR_REVIEW_TMP/img_N.png" "$URL"
 ```
 
 **If no open comments in ANY of the three categories (threads, issue comments, review body comments):** Tell the user "No open review comments found on this PR." and stop. (Already handled by the Step 1 triage — you should never reach here with 0 comments.)
@@ -363,7 +427,7 @@ Display the full comment with context:
 
 ### Attached images
 
-<For each image URL: download with curl -sL -H "Authorization: Bearer $GH_TOKEN" to /tmp/claude/img_N.png, then Read to display>
+<For each image URL: download with curl -sL -H "Authorization: Bearer $GH_TOKEN" to "$PR_REVIEW_TMP/img_N.png", then Read to display>
 ```
 
 **Images are important context.** If the reviewer attached screenshots/diagrams, display them — they often show bugs or expected behavior that text alone doesn't convey.
@@ -666,16 +730,14 @@ Resolution depends on comment type:
 
 ```bash
 # Resolve using the thread's PRRT_ ID
-python3 "$GH" thread-resolve "$THREAD_ID" > /tmp/claude/resolve.json
-python3 "$GH_SCRIPTS/gh.py" resolve-status < /tmp/claude/resolve.json
+python3 "$GH" thread-resolve "$THREAD_ID" --format resolve-status
 ```
 
 **For issue comments** (type = `issue-comment`):
 
 ```bash
-# Resolve by minimizing the comment with reason RESOLVED (uses node_id, e.g. IC_...)
-python3 "$GH" comment-resolve "$NODE_ID" > /tmp/claude/resolve-ic.json
-python3 "$GH_SCRIPTS/gh.py" error-check < /tmp/claude/resolve-ic.json
+# Resolve by minimizing the comment (uses node_id, e.g. IC_...)
+python3 "$GH" comment-resolve "$NODE_ID" --format error-check
 ```
 
 **For review body comments** (type = `review-body`):
