@@ -157,7 +157,7 @@ shape is asked for.
 
 ## Image upload
 
-`image-upload` stores the file on an orphan branch (`pr-assets` by default) through
+`image-upload` stores the file on a dedicated branch (`pr-assets` by default) through
 the Contents API, using the scoped token. The blob is named after the SHA-256 of its
 bytes, so uploading the same screenshot twice issues no write at all and reports
 `reused`. It prints both the raw URL and ready-to-paste markdown.

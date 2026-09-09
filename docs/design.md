@@ -167,8 +167,9 @@ Exit codes: `0` success, `1` usage, `2` auth, `3` API error, `4` not found,
 
 1. Compute the file's SHA-256; the blob is stored as `<sha256>.<ext>`, which makes
    re-uploading the same image idempotent.
-2. Create the orphan branch `pr-assets` if absent (no shared history, so it never
-   pollutes `main`).
+2. Create the branch `pr-assets` if absent, forked from the default branch's current
+   tip. It is a dedicated branch, not an orphan one: it shares the default branch's
+   history at creation time; nothing but asset writes lands on it afterward.
 3. `PUT /repos/{owner}/{repo}/contents/<sha256>.<ext>` with the base64 content on
    that branch. If the path already exists, skip the write and reuse it.
 4. Print both the raw URL and the ready-to-paste markdown:
