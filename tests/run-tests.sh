@@ -643,6 +643,46 @@ check "process-comments ships its helper scripts" "4" \
   "$(ls "$ROOT/skills/process-comments/scripts/" 2>/dev/null | grep -c '\.py$')"
 
 
+echo "== install =="
+
+mkdir -p "$WORK/cfg"
+printf '%s' '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":true}}' \
+  > "$WORK/cfg/settings.json"
+
+inst() {
+  env HOME="$WORK" PR_REVIEW_SETTINGS="$WORK/cfg/settings.json" PR_REVIEW_SKIP_AUTH=1 \
+    sh -c "cd '$WORK/repo' && /bin/bash '$ROOT/install.sh'"
+}
+
+check_status "install.sh succeeds when dependencies are met" 0 inst
+
+# It must write nothing: compare the whole listing before and after.
+before=$(find "$WORK/cfg" -type f | sort)
+inst >/dev/null 2>&1
+check "install.sh writes nothing" "$before" "$(find "$WORK/cfg" -type f | sort)"
+
+printf '%s' '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":false}}' \
+  > "$WORK/cfg/settings.json"
+check_status "install.sh fails when a dependency is disabled" 10 inst
+
+check "both commands declare a description" "2" \
+  "$(grep -l '^description:' "$ROOT"/commands/*.md 2>/dev/null | wc -l | tr -d ' ')"
+
+check "no uninstall script exists" "" \
+  "$(ls "$ROOT/uninstall.sh" 2>/dev/null || true)"
+
+echo "== repository policy =="
+
+# README and CLAUDE.md address someone installing a plugin for a named host product
+# and may name it; the executable surface may not.
+hits=$(grep -rniI 'claude' "$ROOT/skills" "$ROOT/scripts" "$ROOT/commands" 2>/dev/null \
+  | grep -viE '~/\.claude/|\$HOME/\.claude|CLAUDE_CONFIG_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_CODE_SESSION_ID|claude-plugins-official|claude-review|\.claude-plugin|/\.claude/' || true)
+check "no product name in the executable surface" "" "$hits"
+
+check "no attribution trailers in history" "0" \
+  "$(cd "$ROOT" && git log --format='%B' | grep -ciE 'claude-session|co-authored-by|generated with')"
+
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
