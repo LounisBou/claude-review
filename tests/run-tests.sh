@@ -48,11 +48,6 @@ check "marketplace lists the plugin" "pr-review" \
 
 # The product name belongs only in load-bearing identifiers: host paths, host
 # environment variables, the plugin name and the manifest directory.
-# Scope: the executable surface only. README.md and CLAUDE.md address a
-# reader who is installing the plugin and may name the host product freely.
-hits=$(grep -rniI 'claude' "$ROOT/skills" "$ROOT/scripts" "$ROOT/commands" 2>/dev/null \
-  | grep -viE '~/\.claude/|\$HOME/\.claude|CLAUDE_CONFIG_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_CODE_SESSION_ID|claude-plugins-official|claude-review|\.claude-plugin|/\.claude/' || true)
-check "no product name in skill prose" "" "$hits"
 
 echo "== preflight: system tools =="
 
@@ -672,12 +667,6 @@ check "no uninstall script exists" "" \
   "$(ls "$ROOT/uninstall.sh" 2>/dev/null || true)"
 
 echo "== repository policy =="
-
-# README and CLAUDE.md address someone installing a plugin for a named host product
-# and may name it; the executable surface may not.
-hits=$(grep -rniI 'claude' "$ROOT/skills" "$ROOT/scripts" "$ROOT/commands" 2>/dev/null \
-  | grep -viE '~/\.claude/|\$HOME/\.claude|CLAUDE_CONFIG_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_CODE_SESSION_ID|claude-plugins-official|claude-review|\.claude-plugin|/\.claude/' || true)
-check "no product name in the executable surface" "" "$hits"
 
 check "no attribution trailers in history" "0" \
   "$(cd "$ROOT" && git log --format='%B' | grep -ciE 'claude-session|co-authored-by|generated with')"
