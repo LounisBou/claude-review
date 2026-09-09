@@ -579,6 +579,41 @@ check_status "pr-merge rejects an unknown method" 1 gh3 pr-merge 7 --method fast
 check_status "pr-merge rejects a non-numeric PR" 1 gh3 pr-merge abc
 
 
+echo "== skill documents =="
+
+SKILLDOC="$ROOT/skills/github-curl/SKILL.md"
+
+# Read the live parser: a subcommand that exists but is not written down is one
+# no skill will ever call, so the suite enforces the documentation rather than
+# trusting the author to remember.
+undocumented=$(python3 - "$GHDIR" "$SKILLDOC" <<'PYDOC'
+import sys
+sys.path.insert(0, sys.argv[1])
+import gh
+parser = gh.build_parser()
+actions = [a for a in parser._actions if a.dest == "command"]
+names = sorted(actions[0].choices) if actions else []
+doc = open(sys.argv[2], encoding="utf-8").read()
+print(" ".join(n for n in names if "`%s`" % n not in doc))
+PYDOC
+)
+check "every subcommand is documented" "" "$undocumented"
+
+undocumented_formats=$(python3 - "$GHDIR" "$SKILLDOC" <<'PYFMT'
+import sys
+sys.path.insert(0, sys.argv[1])
+from ghlib import fmt
+doc = open(sys.argv[2], encoding="utf-8").read()
+print(" ".join(n for n in sorted(fmt._FORMATTERS) if "`%s`" % n not in doc))
+PYFMT
+)
+check "every formatter is documented" "" "$undocumented_formats"
+
+# No relative .claude/skills path may survive the move into a plugin.
+stale=$(grep -rn '\.claude/skills/' "$ROOT/skills" 2>/dev/null || true)
+check "no relative skill paths" "" "$stale"
+
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
