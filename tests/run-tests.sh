@@ -774,6 +774,68 @@ done
 check "process-comments ships its helper scripts" "4" \
   "$(ls "$ROOT/skills/process-comments/scripts/" 2>/dev/null | grep -c '\.py$')"
 
+echo "== process-comments helper scripts: null-safety =="
+
+# These four scripts are executed directly by the skill, but exercised by no
+# other test in this suite. Each is fed a fixture GitHub would plausibly
+# send -- a null author, a null user, a null body, an empty PR list -- that
+# an unguarded ".get(key, default)" chain (which only substitutes its
+# default for an ABSENT key, not a present null) turns into an uncaught
+# AttributeError/IndexError instead of a handled "nothing here". A bare
+# exit-code check cannot tell a mapped "no data" apart from a crash, so each
+# case also asserts there is no traceback and that the printed value is the
+# sane one, not an artifact of the crash.
+PCSCRIPTS="$ROOT/skills/process-comments/scripts"
+
+# count_open.py: a review thread whose last comment has a null author (a
+# deleted GitHub account) must count as pending, not crash.
+PCTMP="$WORK/pc-null-author"; mkdir -p "$PCTMP"
+printf '%s' '[{"comments":{"nodes":[{"author":null}]}}]' > "$PCTMP/open-threads.json"
+printf '%s' '[]' > "$PCTMP/open-issue-comments.json"
+printf '%s' '[]' > "$PCTMP/open-reviews.json"
+out=$(env PR_REVIEW_TMP="$PCTMP" python3 "$PCSCRIPTS/count_open.py" someone 2>&1)
+check "count_open.py survives a null thread author" "0" \
+  "$(env PR_REVIEW_TMP="$PCTMP" python3 "$PCSCRIPTS/count_open.py" someone >/dev/null 2>&1; echo $?)"
+check "count_open.py null author has no traceback" "0" \
+  "$(printf '%s' "$out" | grep -cE 'Traceback|AttributeError')"
+check "count_open.py still counts the thread as pending" "1" \
+  "$(printf '%s' "$out" | grep -c '^PENDING=1$')"
+
+# filter_reviews.py: a null body and a null user (both legal GitHub payloads)
+# must be filtered out / compared safely, not crash the whole batch.
+PCTMP="$WORK/pc-null-review"; mkdir -p "$PCTMP"
+printf '%s' '[{"body":null,"user":null},{"body":"hello","user":{"login":"alice"}}]' \
+  > "$PCTMP/reviews.json"
+out=$(env PR_REVIEW_TMP="$PCTMP" python3 "$PCSCRIPTS/filter_reviews.py" bob 2>&1)
+check "filter_reviews.py survives a null body and null user" "0" \
+  "$(env PR_REVIEW_TMP="$PCTMP" python3 "$PCSCRIPTS/filter_reviews.py" bob >/dev/null 2>&1; echo $?)"
+check "filter_reviews.py null review has no traceback" "0" \
+  "$(printf '%s' "$out" | grep -cE 'Traceback|AttributeError')"
+check "filter_reviews.py keeps only the real review" "Open review body comments: 1" "$out"
+
+# extract_user_login.py: an empty PR list (no PR on this branch) is the
+# ordinary "not found" response from pr-get, fetched before the skill's own
+# "is PR_NUM empty" check runs -- pr_data[0] must not raise IndexError here.
+PCTMP="$WORK/pc-empty-pr"; mkdir -p "$PCTMP"
+printf '%s' '[]' > "$PCTMP/pr.json"
+out=$(env PR_REVIEW_TMP="$PCTMP" python3 "$PCSCRIPTS/extract_user_login.py" 2>&1)
+check "extract_user_login.py survives an empty PR list" "0" \
+  "$(env PR_REVIEW_TMP="$PCTMP" python3 "$PCSCRIPTS/extract_user_login.py" >/dev/null 2>&1; echo $?)"
+check "extract_user_login.py empty PR list has no traceback" "0" \
+  "$(printf '%s' "$out" | grep -cE 'Traceback|IndexError')"
+check "extract_user_login.py prints an empty login" "" "$out"
+
+# extract_paths.py: the open-threads.json file is simply absent (e.g. Fast
+# tier, which skips producing it) -- the unguarded json.load(open(...)) must
+# not crash the read.
+PCTMP="$WORK/pc-missing-threads"; mkdir -p "$PCTMP"
+out=$(env PR_REVIEW_TMP="$PCTMP" python3 "$PCSCRIPTS/extract_paths.py" 2>&1)
+check "extract_paths.py survives a missing open-threads.json" "0" \
+  "$(env PR_REVIEW_TMP="$PCTMP" python3 "$PCSCRIPTS/extract_paths.py" >/dev/null 2>&1; echo $?)"
+check "extract_paths.py missing file has no traceback" "0" \
+  "$(printf '%s' "$out" | grep -cE 'Traceback|Error')"
+check "extract_paths.py prints nothing for a missing file" "" "$out"
+
 
 echo "== install =="
 

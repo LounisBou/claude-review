@@ -13,6 +13,7 @@ import os
 import sys
 
 USER = sys.argv[1] if len(sys.argv) > 1 else ""
+TMP = os.environ.get("PR_REVIEW_TMP", "/tmp/claude")
 
 
 def load(path):
@@ -26,16 +27,20 @@ def load(path):
         return []
 
 
-threads = load("/tmp/claude/open-threads.json")
-issue_comments = load("/tmp/claude/open-issue-comments.json")
-reviews = load("/tmp/claude/open-reviews.json")
+threads = load(os.path.join(TMP, "open-threads.json"))
+issue_comments = load(os.path.join(TMP, "open-issue-comments.json"))
+reviews = load(os.path.join(TMP, "open-reviews.json"))
 
 # A thread whose last reply is the user's is awaiting the reviewer: auto-passed.
+# ".get" only substitutes its default for an ABSENT key -- GitHub's GraphQL
+# API sends "author": null for a deleted account, and that null survives
+# ".get('author', {})" unguarded, so the next ".get('login', ...)" raises
+# AttributeError on a real, if uncommon, payload.
 auto_passed = []
 pending_threads = []
 for thread in threads:
-    nodes = thread.get("comments", {}).get("nodes", [])
-    last_author = nodes[-1].get("author", {}).get("login", "") if nodes else ""
+    nodes = (thread.get("comments") or {}).get("nodes") or []
+    last_author = (nodes[-1].get("author") or {}).get("login", "") if nodes else ""
     if last_author == USER:
         auto_passed.append(thread)
     else:
