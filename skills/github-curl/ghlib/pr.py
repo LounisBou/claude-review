@@ -3,6 +3,7 @@
 import base64
 import binascii
 import subprocess
+from urllib.parse import quote
 
 from . import bodies, errors, http, repo
 
@@ -20,7 +21,11 @@ def auth_check(args):
 def pr_get(args):
     owner, name = repo.owner_repo()
     branch = args.branch or _current_branch()
-    return http.rest("GET", "/repos/%s/%s/pulls?head=%s:%s" % (owner, name, owner, branch))
+    if not branch:
+        raise errors.UsageError("cannot determine the branch; pass --branch")
+    return http.rest(
+        "GET", "/repos/%s/%s/pulls?head=%s:%s" % (owner, name, owner, quote(branch, safe=""))
+    )
 
 
 def pr_list(args):
@@ -70,7 +75,9 @@ def pr_commits(args):
 def file_at_ref(args):
     owner, name = repo.owner_repo()
     data = http.rest(
-        "GET", "/repos/%s/%s/contents/%s?ref=%s" % (owner, name, args.path, args.ref)
+        "GET",
+        "/repos/%s/%s/contents/%s?ref=%s"
+        % (owner, name, quote(args.path, safe="/"), quote(args.ref, safe="")),
     )
     # A directory path makes this endpoint answer with a JSON array, not an object.
     if not isinstance(data, dict):

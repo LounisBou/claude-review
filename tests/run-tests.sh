@@ -312,6 +312,17 @@ printf '%s' '[{"number":7,"title":"T","state":"open","html_url":"u","head":{"ref
   > "$F2/GET_repos_acme_thing_pulls__head=acme:feature-x.json"
 check "pr-get resolves the branch PR number" "7" "$(gh pr-get --branch feature-x --format pr-number)"
 
+# pr-get falls back to the current branch when none is given. Outside a git
+# checkout (or in detached HEAD, where git prints nothing useful) that
+# resolves to an empty string, and an unguarded request would go out as
+# "head=owner:" -- probably matching every open PR. pr-create already guards
+# this the same way; pr-get must too.
+check_status "pr-get with no resolvable branch exits 1" 1 \
+  sh -c "cd '$WORK/norepo' && env GH_FIXTURES='$F2' GH_TOKEN=x GH_REPO=acme/thing python3 '$GHDIR/gh.py' pr-get"
+
+out=$(sh -c "cd '$WORK/norepo' && env GH_FIXTURES='$F2' GH_TOKEN=x GH_REPO=acme/thing python3 '$GHDIR/gh.py' pr-get" 2>&1)
+check "unresolvable branch has no traceback" "0" "$(printf '%s' "$out" | grep -cE 'Traceback|^[A-Za-z]*Error:')"
+
 printf '%s' '{"number":7,"state":"closed","merged":true}' > "$F2/GET_repos_acme_thing_pulls_7.json"
 check "pr-status reports merged" "merged" "$(gh pr-status 7 --format pr-merge-status)"
 
@@ -491,6 +502,39 @@ check_status "pr-update with no field exits 1" 1 gh3 pr-update 7
 printf '%s' '[{"name":"bug"}]' > "$F3/POST_repos_acme_thing_issues_7_labels.json"
 check "label-add returns the label set" "bug" \
   "$(gh3 label-add 7 bug --format raw | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["name"])')"
+
+# label-remove interpolates the label name raw into a DELETE path. A
+# multi-word label like "good first issue" carries a literal space, a control
+# character to http.client, which previously escaped only as an uncaught
+# http.client.InvalidURL -- not a GhError -- surfacing as a raw traceback on a
+# live connection. quote() must run before the name reaches the URL. That
+# InvalidURL only reproduces against a real socket, which this offline suite
+# never opens, so -- exactly as the issue-search tests above do -- assert on
+# the recorded outgoing path: it fails the moment quote() is dropped, because
+# the request would then be recorded (and looked up) under a path with a
+# literal space instead of "%20".
+printf '%s' '{}' > "$F3/DELETE_repos_acme_thing_issues_7_labels_good%20first%20issue.json"
+check_status "label-remove with a multi-word label exits 0" 0 \
+  gh3 label-remove 7 "good first issue"
+
+out=$(gh3 label-remove 7 "good first issue" 2>&1)
+check "label-remove multi-word label has no traceback" "0" \
+  "$(printf '%s' "$out" | grep -cE 'Traceback|^[A-Za-z]*Error:')"
+
+encoded_path=$(python3 -c "
+import json
+rows = [json.loads(line) for line in open('$F3/sent.jsonl')]
+matches = [r['path'] for r in rows if r['path'].startswith('/repos/acme/thing/issues/7/labels/')]
+print(matches[-1])
+")
+check "label-remove percent-encodes a multi-word label" \
+  "/repos/acme/thing/issues/7/labels/good%20first%20issue" "$encoded_path"
+
+# GitHub's own API deletes one label per call, so a "names" list secretly
+# dropped everything past the first. label-remove takes a single "name"
+# positional instead, which makes a second label a usage error rather than a
+# silent loss.
+check_status "label-remove rejects a second label" 1 gh3 label-remove 7 foo bar
 
 printf '%s' '{"number":3,"title":"An issue"}' > "$F3/GET_repos_acme_thing_issues_3.json"
 check "issue-view fetches the issue" "An issue" \

@@ -1,5 +1,7 @@
 """Pull request metadata: title, body, base, state, labels, people."""
 
+from urllib.parse import quote
+
 from . import bodies, errors, http, repo
 
 _READY = """
@@ -49,7 +51,8 @@ def label_add(args):
 def label_remove(args):
     owner, name = repo.owner_repo()
     return http.rest(
-        "DELETE", "/repos/%s/%s/issues/%s/labels/%s" % (owner, name, args.pr, args.names[0])
+        "DELETE",
+        "/repos/%s/%s/issues/%s/labels/%s" % (owner, name, args.pr, quote(args.name, safe="")),
     )
 
 
@@ -100,9 +103,13 @@ def register(subparsers):
     parser.add_argument("pr", type=int)
     parser.set_defaults(handler=pr_ready)
 
+    parser = subparsers.add_parser("label-remove")
+    parser.add_argument("pr", type=int)
+    parser.add_argument("name", help="a single label; GitHub deletes one per call")
+    parser.set_defaults(handler=label_remove)
+
     for cmd, handler in (
         ("label-add", label_add),
-        ("label-remove", label_remove),
         ("reviewer-add", reviewer_add),
         ("reviewer-remove", reviewer_remove),
         ("assignee-add", assignee_add),
