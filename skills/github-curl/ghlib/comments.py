@@ -32,6 +32,22 @@ mutation($id:ID!) {
 }
 """
 
+_MINIMIZE = """
+mutation($id:ID!) {
+  minimizeComment(input:{subjectId:$id, classifier:RESOLVED}) {
+    minimizedComment { isMinimized }
+  }
+}
+"""
+
+_UNMINIMIZE = """
+mutation($id:ID!) {
+  unminimizeComment(input:{subjectId:$id}) {
+    unminimizedComment { isMinimized }
+  }
+}
+"""
+
 _MINIMIZED = """
 query($id:ID!) { node(id:$id) { ... on IssueComment { isMinimized } } }
 """
@@ -88,11 +104,14 @@ def thread_resolve(args):
 
 
 def comment_resolve(args):
-    return http.graphql(_RESOLVE, {"id": args.node_id})
+    # An issue comment is minimised, not resolved: resolveReviewThread takes a
+    # thread id and rejects a comment id. The read side already asks isMinimized,
+    # so resolving through the thread mutation set a state nothing ever produced.
+    return http.graphql(_MINIMIZE, {"id": args.node_id})
 
 
 def comment_unresolve(args):
-    return http.graphql(_UNRESOLVE, {"id": args.node_id})
+    return http.graphql(_UNMINIMIZE, {"id": args.node_id})
 
 
 def thread_reply(args):

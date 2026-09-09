@@ -892,6 +892,40 @@ check "no attribution trailers in history" "0" \
   "$(cd "$ROOT" && git log --format='%B' | grep -ciE 'claude-session|co-authored-by|generated with')"
 
 
+echo "== comment minimisation =="
+
+# comment-resolve must minimise a comment, not resolve a thread: the read side
+# asks isMinimized, so using the thread mutation set a state nothing produced.
+printf '%s' '{"minimizeComment":{"minimizedComment":{"isMinimized":true}}}' > "$F3/graphql.json"
+gh3 comment-resolve IC_abc123 >/dev/null
+
+mutation=$(python3 -c "
+import json
+rows = [json.loads(l) for l in open('$F3/sent.jsonl') if '\"query\"' in l]
+q = rows[-1]['query']
+print('minimize' if 'minimizeComment' in q and 'unminimize' not in q else
+      'resolveThread' if 'resolveReviewThread' in q else 'other')
+")
+check "comment-resolve minimises the comment" "minimize" "$mutation"
+
+gh3 comment-unresolve IC_abc123 >/dev/null
+unmutation=$(python3 -c "
+import json
+rows = [json.loads(l) for l in open('$F3/sent.jsonl') if '\"query\"' in l]
+print('unminimize' if 'unminimizeComment' in rows[-1]['query'] else 'other')
+")
+check "comment-unresolve restores the comment" "unminimize" "$unmutation"
+
+# thread-resolve keeps using the thread mutation — the two are not interchangeable.
+gh3 thread-resolve PRRT_xyz >/dev/null
+tmutation=$(python3 -c "
+import json
+rows = [json.loads(l) for l in open('$F3/sent.jsonl') if '\"query\"' in l]
+print('resolveThread' if 'resolveReviewThread' in rows[-1]['query'] else 'other')
+")
+check "thread-resolve still resolves a thread" "resolveThread" "$tmutation"
+
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
