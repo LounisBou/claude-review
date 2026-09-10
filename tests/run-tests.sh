@@ -926,6 +926,34 @@ print('resolveThread' if 'resolveReviewThread' in rows[-1]['query'] else 'other'
 check "thread-resolve still resolves a thread" "resolveThread" "$tmutation"
 
 
+echo "== skills call only what exists =="
+
+# The reverse of the documentation check. That one asks "is everything that exists
+# written down"; this one asks "does everything written down exist". Its absence is
+# what let process-comments ship calling ten subcommands that were never there.
+phantom=$(python3 - "$GHDIR" "$ROOT" <<'PYREV'
+import os, re, sys
+sys.path.insert(0, sys.argv[1])
+import gh
+from ghlib import fmt
+subs = set([a for a in gh.build_parser()._actions if a.dest == "command"][0].choices)
+fmts = set(fmt._FORMATTERS)
+bad = []
+for name in ("start-review", "process-comments", "auto-fix-loop", "github-curl"):
+    path = os.path.join(sys.argv[2], "skills", name, "SKILL.md")
+    for i, line in enumerate(open(path, encoding="utf-8"), 1):
+        m = re.search(r'python3\s+"\$GH"\s+([a-z][a-z0-9-]+)', line)
+        if m and m.group(1) not in subs:
+            bad.append("%s:%d subcommand %s" % (name, i, m.group(1)))
+        for f in re.finditer(r'--format\s+([a-z][a-z0-9-]+)', line):
+            if f.group(1) not in fmts:
+                bad.append("%s:%d format %s" % (name, i, f.group(1)))
+print(" ".join(bad))
+PYREV
+)
+check "every skill invocation names something real" "" "$phantom"
+
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

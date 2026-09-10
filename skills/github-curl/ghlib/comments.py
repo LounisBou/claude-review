@@ -26,12 +26,6 @@ mutation($id:ID!) {
 }
 """
 
-_UNRESOLVE = """
-mutation($id:ID!) {
-  unresolveReviewThread(input:{threadId:$id}) { thread { id isResolved } }
-}
-"""
-
 _MINIMIZE = """
 mutation($id:ID!) {
   minimizeComment(input:{subjectId:$id, classifier:RESOLVED}) {
