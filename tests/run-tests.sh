@@ -389,6 +389,48 @@ PYREV
   check "every skill invocation names something real" "" "$phantom"
 fi
 
+echo "== start-review pending review =="
+
+START_DOC="$ROOT/skills/start-review/SKILL.md"
+
+# The pending review is the default destination of a kept comment; the immediate
+# path stays for an explicit request. So review-submit lives in exactly one bash
+# block, and --event never appears outside it.
+check "start-review submits from exactly one bash block" "1" \
+  "$(awk '/^```bash/{f=1; b=0; next} /^```/{if(f&&b)n++; f=0} f && /review-submit/ {b=1} END{print n+0}' "$START_DOC")"
+check "start-review passes --event only beside review-submit" "" \
+  "$(awk '/^```bash/{f=1; blk=""; next} /^```/{if(f && blk ~ /--event/ && blk !~ /review-submit/) print s; f=0} f{ if(blk=="") s=NR; blk=blk"\n"$0 }' "$START_DOC")"
+
+# The three pending subcommands are the new path; the contract loop proves they exist.
+for sub in review-pending review-pending-create review-pending-add; do
+  check "start-review invokes $sub" "1" \
+    "$(grep -cE 'python3 "\$GH" '"$sub"'( |$)' "$START_DOC" 2>/dev/null | awk '{print ($1>=1)?1:0}')"
+done
+
+# Each bash block is its own shell: a variable used in a block that does not
+# assign it expands to nothing, silently.
+unresolved=$(python3 - "$START_DOC" <<'PYFENCE'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read().split("\n")
+names = ("GH", "GH_ROOT", "PR_NUM", "PR_REVIEW_TMP", "HEAD_SHA")
+bad, block, start = [], None, 0
+for i, line in enumerate(text, 1):
+    if block is None:
+        if line.startswith("```bash"):
+            block, start = [], i
+    elif line.startswith("```"):
+        body = "\n".join(block)
+        for name in names:
+            if re.search(r"\$\{?%s\b" % name, body) and not re.search(r"^\s*%s=" % name, body, re.M):
+                bad.append("%d:%s" % (start, name))
+        block = None
+    else:
+        block.append(line)
+print(" ".join(bad))
+PYFENCE
+)
+check "every start-review bash block derives what it uses" "" "$unresolved"
+
 echo "== github resolver =="
 
 RESOLVE="$ROOT/scripts/resolve_github.py"

@@ -14,7 +14,7 @@ action. A non-zero exit stops the skill: print its output verbatim and do nothin
 
 **Default deliverable: a draft review comment for the PR author, not a code change.** Most reviews target someone else's branch; the normal outcome is a comment the author acts on. Applying a fix is the exception, and it happens only on the explicit `fix` command.
 
-**Core principle:** the user controls the pace. No batching. No auto-fixing. No auto-posting.
+**Core principle:** the user controls the pace and the review is theirs to submit. No batching. No auto-fixing. No auto-posting.
 
 **Announce at start:** "I'm using pr-review:start-review for an interactive review walkthrough."
 
@@ -24,7 +24,8 @@ action. A non-zero exit stops the skill: print its output verbatim and do nothin
 
 ```
 NEVER apply code changes unless the user explicitly says "fix"
-NEVER post anything to GitHub unless the user explicitly says "post"
+NEVER publish anything to GitHub unless the user explicitly says "post now"
+NEVER submit a review, resolve a thread or reply in one unless the user asks for it by name
 NEVER move to the next item unless the user explicitly says "next"
 ```
 
@@ -38,7 +39,7 @@ NEVER move to the next item unless the user explicitly says "next"
 - "Sure" ≠ permission to fix
 - "Yes" ≠ permission to fix
 
-**Only the literal word "fix" means fix. Only the literal word "post" means post.**
+**Only the literal word "fix" means fix. Only the literal words "post now" mean publish.**
 
 ---
 
@@ -76,9 +77,11 @@ digraph start_review {
     current [label="Current item:\n8-block format\n(see Step 3)\nWAIT"];
     user_input [label="User input?" shape=diamond];
     apply_fix [label="Apply the fix\n(Edit code)"];
-    post [label="Post comment to PR\n(github-curl)"];
+    post [label="Keep the comment\nfor the pending review"];
+    post_now [label="Publish now\n(github-curl)"];
     next_item [label="Move to next item"];
-    done [label="All items done" shape=ellipse];
+    write_review [label="Write ONE review,\nleft PENDING"];
+    done [label="User submits it on GitHub" shape=ellipse];
 
     start -> check_review;
     check_review -> extract [label="yes (reuse)"];
@@ -90,12 +93,15 @@ digraph start_review {
     current -> user_input;
     user_input -> apply_fix [label="\"fix\""];
     user_input -> post [label="\"post\""];
+    user_input -> post_now [label="\"post now\""];
     user_input -> next_item [label="\"next\""];
     user_input -> current [label="question\n(answer it)"];
     apply_fix -> user_input [label="wait again"];
     post -> user_input [label="wait again"];
+    post_now -> user_input [label="wait again"];
     next_item -> current [label="more items"];
-    next_item -> done [label="no more"];
+    next_item -> write_review [label="no more"];
+    write_review -> done;
 }
 ```
 
@@ -124,6 +130,27 @@ Review agents report plausible findings, not verified ones. Before an item reach
 - **Confirm the failure scenario is reachable** in this codebase, with this data model, on this branch.
 - **Apply the YAGNI filter.** Drop speculative hardening, defensive code for unreachable states, and pre-existing behaviour the PR did not introduce. Say in chat which findings were dropped and why — the filtering is part of the review.
 - **Prefer convergence.** A finding reported independently by several agents and confirmed in the code outranks a single agent's deep speculation.
+
+### 1.3 Pending Review State
+
+Every comment the user keeps goes into ONE review left PENDING on the PR. A pending
+review is invisible to the author until its owner submits it, so nothing here reaches
+the author before the user says so on GitHub. Read what already exists before the
+walkthrough starts:
+
+```bash
+# Each bash block is its own shell; resolve rather than inherit.
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+GH="$GH_ROOT/skills/github-curl/gh.py"
+PR_NUM=$(python3 "$GH" pr-get --format pr-number) || exit 1
+[ -n "$PR_NUM" ] || { echo "no open pull request for this branch"; exit 1; }
+python3 "$GH" review-pending "$PR_NUM" --format pending-review-summary
+```
+
+`none` means the user has no pending review on this PR: the kept items open one at
+completion. Any other output carries an `id`, `state PENDING` and a comment count.
+Say the id and the count in chat, and add the kept items to that review instead of
+opening a second one — the tool refuses a second one anyway.
 
 ---
 
@@ -201,7 +228,7 @@ Omit this block if there is nothing to carve out.>
 
 ---
 
-**Options:** `post` (publish the comment) · `fix` (apply the correction) · `next` (move on) · or ask a question.
+**Options:** `post` (keep for the pending review) · `post now` (publish immediately) · `fix` · `next` · or ask a question.
 ````
 
 ### Writing the draft comment (block 8)
@@ -239,7 +266,10 @@ If you catch yourself thinking:
 
 - "The user clearly wants this fixed" → STOP. Wait for `fix`.
 - "This is obvious, I'll just apply it" → STOP. Wait for `fix`.
-- "I'll post this one, it's uncontroversial" → STOP. Wait for `post`.
+- "I'll post this one, it's uncontroversial" → STOP. Nothing is kept without `post`, nothing is published without `post now`.
+- "I'll create the review with an event so it's done" → STOP. No event outside the `post now` path. A review opened with an event is submitted, and the user never saw it.
+- "The user said ok, I'll write the reworked text" → STOP. Only `post` on the version shown keeps it.
+- "`post` means it should be on the PR now" → STOP. `post` keeps. Only `post now` publishes.
 - "Let me show all items at once for efficiency" → STOP. One at a time.
 - "They said 'makes sense' so I'll fix it" → STOP. "Makes sense" ≠ `fix`.
 - "I'll batch the simple ones together" → STOP. One at a time.
@@ -253,17 +283,45 @@ If you catch yourself thinking:
 
 | Command | Action |
 |---------|--------|
-| `post` | Post the current item's comment to the PR, **in English** — never ask which language |
+| `post` | Keep the current item's English comment for the pending review — nothing is sent |
+| `post now` | Publish the current item's comment on the PR immediately, **in English** — never ask which language. Only on this command, spelled out |
+| `rework` | Rewrite the current comment, then show it again in both languages and WAIT — see below |
 | `fix` | Apply the proposed code change for the current item |
 | `next` | Skip the current item, move to the next |
 | Questions | Answer in the user's language, then keep waiting |
-| `post all` | Post every remaining draft comment (explicit batch request) |
+| `post all` | Keep every remaining draft for the pending review (explicit batch request) |
 | `fix all` | Apply fixes to ALL remaining items (explicit batch request) |
 | `skip all` | Mark all remaining as skipped, end the walkthrough |
+
+`rework` is for a comment the user does not understand. The rewrite carries one main
+idea: the defect and the consequence the user can see, one sentence for the suggestion,
+at most one for a secondary consequence. Show it in the user's language and in English,
+as block 8 does, then WAIT. The rewritten version replaces nothing until the user says
+`post` on it — a user who says the rewrite is clearer has not kept it.
 
 ---
 
 ## After "post"
+
+Nothing is sent. The comment is kept for the pending review, which is written once, at
+completion.
+
+1. Record the item as kept: the file path, the line the comment anchors on, the range
+   (first and last line) when the comment covers several lines, and the **English**
+   body exactly as block 8 showed it. That record is what the review will carry — the
+   user's own language stays in chat.
+2. An anchor outside the PR diff cannot become an inline comment: keep the item apart,
+   under "for the review body". Its English text is listed at completion, for the user
+   to paste into the review when submitting it.
+3. Say, in the user's language: "kept for the pending review (N so far)".
+4. **WAIT** — do not auto-advance.
+
+---
+
+## After "post now"
+
+The immediate path. It publishes on the PR, so it runs only when the user asked for it
+by that name — never as the destination of a plain `post`.
 
 1. **Post the English version. Always.** Never ask the user which language — see Language Rules.
 2. Post as an **inline comment on the cited file and line** where the anchor is inside the PR diff; fall back to a top-level PR comment when the line is outside the diff (a migration filename, a missing test) — and say which you used.
@@ -310,16 +368,73 @@ python3 "$GH" pr-comment <PR> --body-file <file>
 
 ---
 
-## Completion
+## Completion — writing the pending review
 
-When every item has been handled:
+When every item has been handled and at least one was kept, the review is written now,
+in one pass. Until this point nothing the user kept has left the session.
+
+1. **Read the state again** with the Step 1.3 block. It prints `none`, or an id and a
+   count.
+
+2. **When it prints `none`**, write the kept items to one file and open the review with
+   them. Build the file with `python3` and `json.dump`, never by hand, so that markdown
+   special characters are escaped correctly. It holds a JSON array with one object per
+   kept item: `path`, `line`, `side` set to `"RIGHT"`, and `body` — the English text.
+   A comment covering a range adds `start_line`, the first line of that range, and
+   `start_side` set to `"RIGHT"`. Write it to `pending-comments.json` under
+   `/tmp/claude-pr-review-<PR>`, creating that directory when it does not exist yet.
+
+```bash
+# Each bash block is its own shell; resolve rather than inherit.
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+GH="$GH_ROOT/skills/github-curl/gh.py"
+PR_NUM=$(python3 "$GH" pr-get --format pr-number) || exit 1
+[ -n "$PR_NUM" ] || exit 1
+PR_REVIEW_TMP=/tmp/claude-pr-review-$PR_NUM
+python3 "$GH" review-pending-create "$PR_NUM" --comments-file "$PR_REVIEW_TMP/pending-comments.json" --format error-check
+```
+
+3. **When a review already exists**, add the kept items to it instead, one call per
+   item, with the id the read printed. Each body goes in its own file under the same
+   directory — `comment-1.md`, `comment-2.md` — because a body never travels as an
+   argument. Add `--start-line` when the comment covers a range.
+
+```bash
+# Each bash block is its own shell; resolve rather than inherit.
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+GH="$GH_ROOT/skills/github-curl/gh.py"
+PR_NUM=$(python3 "$GH" pr-get --format pr-number) || exit 1
+[ -n "$PR_NUM" ] || exit 1
+PR_REVIEW_TMP=/tmp/claude-pr-review-$PR_NUM
+python3 "$GH" review-pending-add "$PR_NUM" --review-id <id> --path <path> --line <line> --body-file "$PR_REVIEW_TMP/comment-<n>.md" --format error-check
+```
+
+4. **Report from a read, never from the write.** Run the Step 1.3 block once more and
+   take the id, the `state` — it must say `PENDING` — the comment count and the
+   path/line table from THAT output. What a write printed says what was sent, not what
+   the PR now holds; a count that does not match the number of kept items is a failure
+   to report, not a detail to smooth over.
+
+5. List the "for the review body" items — those whose anchor sat outside the diff. They
+   are not in the review: their English text is for the user to paste into the review
+   body when submitting.
+
+6. Say, in the user's language, what is left to do: the review is pending and the author
+   sees none of it. The user opens it on GitHub, edits or deletes whatever they want,
+   and submits it there. This skill never submits it.
 
 ```
 ## Walkthrough complete
 
-### Commented (2)
-- #1: <title> — <URL>
-- #3: <title> — <URL>
+### Kept for the pending review (2)
+- #1: <title> — `path/file.php:132`
+- #3: <title> — `path/file.php:16`
+
+### For the review body (1)
+- #5: <title> — anchor outside the diff
+
+### Commented (1)
+- #6: <title> — <URL>
 
 ### Fixed (1)
 - #2: <title>
@@ -327,8 +442,13 @@ When every item has been handled:
 ### Skipped (1)
 - #4: <title> — dropped by the user
 
+Review <id> — state PENDING, <N> comments. Read it on GitHub and submit it there.
+
 <If any fixes were applied: offer to commit them. Otherwise, nothing to do.>
 ```
+
+When no item was kept, no review is opened: the summary drops both new sections and the
+review line.
 
 ---
 
@@ -346,7 +466,7 @@ When every item has been handled:
 | Writing another language into code or commits | Repository artifacts are English-only | English in every file |
 | Batching items | User loses control | One item at a time |
 | Auto-fixing after explaining | No explicit permission | Wait for `fix` |
-| Auto-posting a comment | Outward-facing action | Wait for `post` |
+| Auto-posting a comment | Outward-facing action | Wait for `post now` |
 | Listing an unverified agent finding | Wastes the author's time on a non-issue | Verify the anchor first |
 | Anchoring on the symptom line | The author cannot act on it | Anchor on the defect line |
 | Moving on after a question | The user did not say `next` | Answer, then wait |
@@ -363,6 +483,7 @@ When every item has been handled:
 4. For each item, render the 8 blocks:
    1) file:line  2) severity  3) explanation  4) why it's a problem
    5) opinion  6) proposed fix  7) scope  8) comment in the user's language + English
-5. WAIT for post / fix / next
-6. Summarize at the end
+5. WAIT for post / post now / rework / fix / next
+6. Write every kept comment into ONE review left PENDING
+7. Report it from a read, and leave the submitting to the user
 ```
