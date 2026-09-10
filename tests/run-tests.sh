@@ -431,20 +431,39 @@ check "start-review submits from exactly one bash block" "1" \
 check "start-review passes --event only beside review-submit" "" \
   "$(awk "${FENCES/CLOSE/if (blk ~ /--event/ && blk !~ /review-submit/) print s}" "$START_DOC")"
 
+# Both section checks below track which "## " heading a line sits under, and a
+# heading inside a fence is content the reader is shown, not a section of the
+# document: the completion template holds one. Left uncounted, it moves every
+# line after it into a section that does not exist.
+FENCE_TRACK='function bt(  c) { c = 0; while (substr($0, c + 1, 1) == "`") c++; return c }
+/^```/ { n = bt(); if (!f) { f = 1; fence = n } else if (n >= fence) { f = 0 } next }'
+
 # "post" sends nothing. A tool call anywhere in that section is the defect the
-# whole design exists to prevent, and it would read as legitimate.
+# whole design exists to prevent, and it would read as legitimate. The document
+# can spell that call four ways, and matching only the quoted one is what let
+# `python3 $GH pr-frobnicate` past the contract loop once already.
+#
+# The alternation is written out here rather than shared through a variable: a
+# command-line assignment has its escape sequences processed, so the `\$` of the
+# pattern reaches the match as a bare `$`, which is an anchor. The check then
+# matches nothing and passes on everything.
 check "start-review calls no tool under post" "" \
-  "$(awk '/^## After "post"$/ { f = 1; next } /^## / { f = 0 } f && /python3 "\$GH"/ { print NR }' "$START_DOC")"
+  "$(awk "$FENCE_TRACK"'
+     !f && /^## After "post"$/ { in_post = 1; next }
+     !f && /^## / { in_post = 0 }
+     in_post && /python3[[:space:]]+("\$GH"|\$GH|"\$\{GH\}"|\$\{GH\})/ { print NR }' "$START_DOC")"
 
 # The pending review is written once, at completion. A write reached from an
 # item's own turn would publish part of the walkthrough while it is still running.
 check "start-review writes the review only at completion" "" \
-  "$(awk '/^## / { section = $0 } /review-pending-(create|add)/ && section !~ /^## Completion/ { print NR }' "$START_DOC")"
+  "$(awk "$FENCE_TRACK"'
+     !f && /^## / { section = $0 }
+     /review-pending-(create|add)/ && section !~ /^## Completion/ { print NR }' "$START_DOC")"
 
 # The three pending subcommands are the new path; the contract loop proves they exist.
 for sub in review-pending review-pending-create review-pending-add; do
   check "start-review invokes $sub" "1" \
-    "$(grep -cE 'python3 "\$GH" '"$sub"'( |$)' "$START_DOC" 2>/dev/null | awk '{print ($1>=1)?1:0}')"
+    "$(grep -cE 'python3[[:space:]]+("\$GH"|\$GH|"\$\{GH\}"|\$\{GH\})[[:space:]]+'"$sub"'( |$)' "$START_DOC" 2>/dev/null | awk '{print ($1>=1)?1:0}')"
 done
 
 # Each bash block is its own shell: a variable used in a block that does not

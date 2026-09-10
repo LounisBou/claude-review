@@ -298,7 +298,7 @@ If you catch yourself thinking:
 | `fix` | Apply the proposed code change for the current item |
 | `next` | Skip the current item, move to the next |
 | Questions | Answer in the user's language, then keep waiting |
-| `post all` | Render each remaining block 8 in turn, keep it without waiting, then go to Completion (explicit batch request) |
+| `post all` | Render each remaining block 8 in turn, keep it without waiting (the After "post" step 1 file write included, for each item), then go to Completion (explicit batch request) |
 | `fix all` | Apply fixes to ALL remaining items (explicit batch request) |
 | `skip all` | Mark all remaining as skipped, then go to Completion — the items already kept are written, never lost |
 
@@ -405,7 +405,7 @@ drops both new sections and the review line.
    the range when it covers several; `start_line`, present only for a range, is its first
    line and must be below `line`; both are integers, and a single-line comment carries no
    `start_line`. A range also adds `start_side` set to `"RIGHT"`. Write the array to
-   `pending-comments.json` in the same directory.
+   `pending-comments.json` under `/tmp/claude-pr-review-<PR>`.
 
 ```bash
 # Each bash block is its own shell; resolve rather than inherit.
