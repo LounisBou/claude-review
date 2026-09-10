@@ -134,10 +134,23 @@ block that carries on after the tool has failed does not stop, it degrades. An
 unguarded `PR_NUM` leaves the path at `/tmp/claude-pr-review-`, a bucket shared
 with every other failed run, and the count taken from it is a plausible zero —
 the skill then announces "No open review comments" and stops, having dropped
-every comment on the PR. The same holds for `USER_LOGIN`, re-derived from
-`extract_user_login.py` in each block that passes it to a helper: inherited, it
-is empty, and an empty login silently excludes none of the author's own reviews
-and auto-passes no thread.
+every comment on the PR.
+
+`USER_LOGIN` is guarded differently, and the difference matters.
+`extract_user_login.py` never fails: it catches its own errors and prints an
+empty line with exit 0, on purpose, so that a branch with no open PR reaches the
+"If PR_NUM is empty" message below rather than dying without a word. `|| exit 1`
+on that assignment therefore never fires — it is symmetry with the line above
+it, not protection. What actually stops an empty login is the explicit
+`[ -n "$USER_LOGIN" ] || exit 1` in the two blocks that pass the login to a
+helper, and only there. An empty
+login is not a harmless default: `filter_reviews.py` excludes none of the
+author's own reviews with it, `count_open.py` auto-passes no thread, and the run
+reports a workload that is quietly wrong. Empty in those two blocks means
+`pr.json` is missing or empty — Phase 1 never ran, or ran for a different PR —
+and both blocks run long after the PR is established, so refusing to continue
+costs nothing. They exit silently: a bare exit 1 from either means re-run
+Phase 1 for this PR. Phase 1 itself carries no such test, deliberately.
 
 `export`, not plain assignment: the helper scripts in `$SKILL_DIR` read
 `PR_REVIEW_TMP` from the environment and fall back to `/tmp/claude` when it is
@@ -175,7 +188,12 @@ PR_NUM=$(python3 "$GH" pr-get --format pr-number) || exit 1
 export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 mkdir -p "$PR_REVIEW_TMP"
 
-python3 "$GH" pr-get --format raw > "$PR_REVIEW_TMP/pr.json"
+# The redirection truncates pr.json before python3 runs, so an unguarded
+# failure here leaves a 0-byte file that extract_user_login.py reads as "no
+# login" without complaint. This block owns pr.json; it stops if it cannot
+# write it. No -n test on USER_LOGIN below: a branch with no open PR must
+# reach the message under this block, not die here without a word.
+python3 "$GH" pr-get --format raw > "$PR_REVIEW_TMP/pr.json" || exit 1
 USER_LOGIN=$(python3 "$SKILL_DIR/extract_user_login.py") || exit 1
 ```
 
@@ -251,13 +269,15 @@ After this phase, `$PR_REVIEW_TMP/open-issue-comments.json` contains ONLY open (
 # filter_reviews.py reads PR_REVIEW_TMP from the environment, so this block
 # derives it too — unset, the script would read /tmp/claude instead. USER_LOGIN
 # is re-derived for the same reason: inherited it is empty, and an empty login
-# excludes none of the author's own reviews.
+# excludes none of the author's own reviews. Empty here means pr.json is
+# missing or empty — Phase 1 never ran for this PR — so this block stops.
 GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
 GH="$GH_ROOT/skills/github-curl/gh.py"
 SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
 PR_NUM=$(python3 "$GH" pr-get --format pr-number) || exit 1
 export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 USER_LOGIN=$(python3 "$SKILL_DIR/extract_user_login.py") || exit 1
+[ -n "$USER_LOGIN" ] || exit 1
 
 # Reviews: filter to those with non-empty body, excluding PR author's own reviews
 python3 "$SKILL_DIR/filter_reviews.py" "$USER_LOGIN"
@@ -306,13 +326,16 @@ print(fmt.render('issue-comments-summary', comments))
 # Each bash block is its own shell; resolve and re-derive rather than inherit.
 # count_open.py reads PR_REVIEW_TMP from the environment, and USER_LOGIN is
 # re-derived alongside it: inherited it is empty, and an empty login auto-passes
-# no thread at all.
+# no thread at all. Empty here means pr.json is missing or empty — Phase 1 never
+# ran for this PR — and counting the files of a run that never happened reports
+# a confident zero, so this block stops instead.
 GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
 GH="$GH_ROOT/skills/github-curl/gh.py"
 SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
 PR_NUM=$(python3 "$GH" pr-get --format pr-number) || exit 1
 export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 USER_LOGIN=$(python3 "$SKILL_DIR/extract_user_login.py") || exit 1
+[ -n "$USER_LOGIN" ] || exit 1
 
 python3 "$SKILL_DIR/count_open.py" "$USER_LOGIN"
 ```
