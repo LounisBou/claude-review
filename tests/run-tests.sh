@@ -953,6 +953,52 @@ PYREV
 )
 check "every skill invocation names something real" "" "$phantom"
 
+echo "== github resolver =="
+
+RESOLVE="$ROOT/scripts/resolve_github.py"
+
+# 1. The explicit override wins over everything.
+mkdir -p "$WORK/override"
+check "CLAUDE_GITHUB_ROOT wins" "$WORK/override" \
+  "$(CLAUDE_GITHUB_ROOT="$WORK/override" python3 "$RESOLVE" 2>&1)"
+
+# 2. A real state file resolves to its installPath.
+mkdir -p "$WORK/installed"
+python3 - "$WORK/state.json" "$WORK/installed" <<'PY'
+import json, sys
+json.dump({"version": 2, "plugins": {
+    "github@lounisbou": [{"scope": "user", "installPath": sys.argv[2], "version": "0.1.0"}]
+}}, open(sys.argv[1], "w"))
+PY
+check "installPath is read from the state file" "$WORK/installed" \
+  "$(CLAUDE_PLUGIN_STATE="$WORK/state.json" python3 "$RESOLVE" 2>&1)"
+
+# 3. Absent dependency fails loudly, and says how to fix it.
+printf '{"version":2,"plugins":{}}' > "$WORK/none.json"
+check_status "missing dependency exits 1" 1 \
+  env CLAUDE_PLUGIN_STATE="$WORK/none.json" python3 "$RESOLVE"
+check "missing dependency names the fix" "1" \
+  "$(CLAUDE_PLUGIN_STATE="$WORK/none.json" python3 "$RESOLVE" 2>&1 | grep -c '^fix:')"
+
+# 4. An installPath recorded but deleted from disk is not a resolution.
+python3 - "$WORK/gone.json" <<'PY'
+import json, sys
+json.dump({"version": 2, "plugins": {
+    "github@lounisbou": [{"installPath": "/nonexistent/path/xyz"}]
+}}, open(sys.argv[1], "w"))
+PY
+check_status "recorded but absent path exits 1" 1 \
+  env CLAUDE_PLUGIN_STATE="$WORK/gone.json" python3 "$RESOLVE"
+
+# 5. A state file of the wrong shape is a failure, never a silent pass.
+printf '{"plugins": "not-a-dict"}' > "$WORK/wrong.json"
+check_status "wrong-shaped state exits 1" 1 \
+  env CLAUDE_PLUGIN_STATE="$WORK/wrong.json" python3 "$RESOLVE"
+
+printf 'not json at all' > "$WORK/bad.json"
+check_status "unparseable state exits 1" 1 \
+  env CLAUDE_PLUGIN_STATE="$WORK/bad.json" python3 "$RESOLVE"
+
 
 echo
 echo "$pass passed, $fail failed"
