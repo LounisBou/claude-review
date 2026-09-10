@@ -95,18 +95,25 @@ separate `github` plugin. `${CLAUDE_PLUGIN_ROOT}` names this plugin's own
 directory and cannot reach a sibling, so the sibling's root is resolved through
 the platform's own install record — never by assembling a path into the plugin
 cache by hand, whose directory names are sometimes git SHAs rather than
-versions. `GH_ROOT` is exported, because the inline Python below needs it too.
-Define the paths once, at the top of the first bash block:
+versions.
+
+**Every bash block below is its own shell.** Variables do not survive from one
+Bash call to the next, so the resolution is repeated at the top of each block
+that needs it rather than set once — that repetition is deliberate, not
+oversight. Dropping it does not fail loudly: `$GH` simply expands to the empty
+string and `python3 ""` reports `can't find '__main__' module`, which is not the
+`error:`/`fix:` pair this skill promises.
 
 ```bash
 GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
-export GH_ROOT
 GH="$GH_ROOT/skills/github-curl/gh.py"
 SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
 ```
 
-If the resolver fails it has already printed an `error:` line and a `fix:` line
-naming the install command; stop there rather than continuing without the tool.
+Blocks whose inline Python reads `GH_ROOT` from the environment add
+`export GH_ROOT` as well. If the resolver fails it has already printed an
+`error:` line and a `fix:` line naming the install command; stop there rather
+than continuing without the tool.
 
 `gh.py` takes no JSON on stdin. Every call below either names a real
 subcommand (optionally with `--format <name>` to shape its own output) or
@@ -124,6 +131,11 @@ to disk.
 **Phase 1 — Auth + PR (sequential, needed for PR_NUM):**
 
 ```bash
+# Each bash block is its own shell; resolve rather than inherit.
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+GH="$GH_ROOT/skills/github-curl/gh.py"
+SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
+
 # A unique, per-run directory: concurrent runs of this skill (two PRs, two
 # terminals) must not overwrite each other's files, and the directory must
 # exist before the first write lands in it.
@@ -141,6 +153,10 @@ USER_LOGIN=$(python3 "$SKILL_DIR/extract_user_login.py")
 **Phase 2 — Fetch ALL data in parallel (3 Bash calls in ONE message):**
 
 ```bash
+# Each bash block is its own shell; resolve rather than inherit.
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+GH="$GH_ROOT/skills/github-curl/gh.py"
+
 # Call 1: issue comments (general PR conversation)
 python3 "$GH" pr-issue-comments "$PR_NUM" --format raw > "$PR_REVIEW_TMP/issue-comments.json"
 
@@ -157,6 +173,10 @@ nothing downstream of this skill reads the unfiltered thread list.
 **Phase 3 — Filter to open comments only:**
 
 ```bash
+# Each bash block is its own shell; resolve rather than inherit.
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+GH="$GH_ROOT/skills/github-curl/gh.py"
+
 # Review threads: the "open-threads" formatter applies at fetch time — there
 # is no local "threads.json" to filter, because gh.py always calls the live
 # API; it never reads a formatter's input from a file.
@@ -192,6 +212,9 @@ print('Open issue comments:', len(open_comments))
 After this phase, `$PR_REVIEW_TMP/open-issue-comments.json` contains ONLY open (non-resolved) issue comments. **Use this file for all downstream operations** (summary, images, TODO list). Resolved issue comments are gone — they will never appear in the TODO list.
 
 ```bash
+# Each bash block is its own shell; resolve rather than inherit.
+SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
+
 # Reviews: filter to those with non-empty body, excluding PR author's own reviews
 python3 "$SKILL_DIR/filter_reviews.py" "$USER_LOGIN"
 ```
@@ -199,10 +222,8 @@ python3 "$SKILL_DIR/filter_reviews.py" "$USER_LOGIN"
 **Phase 4 — Display summaries:**
 
 ```bash
-# Shell variables do not survive from one Bash call to the next, so this block
-# re-resolves and re-exports GH_ROOT rather than assuming the first block's
-# export is still in scope: the inline python3 below reads it from the
-# environment, and an unset GH_ROOT there is a KeyError, not a fallback.
+# Exported, not just set: the inline python3 further down reads GH_ROOT from
+# the environment, where an unset value is a KeyError rather than a fallback.
 GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
 export GH_ROOT
 GH="$GH_ROOT/skills/github-curl/gh.py"
@@ -236,6 +257,9 @@ print(fmt.render('issue-comments-summary', comments))
 **Before building any context, count the open comments and tell the user.** The user must never wait through the full setup without knowing how much work there actually is.
 
 ```bash
+# Each bash block is its own shell; resolve rather than inherit.
+SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
+
 python3 "$SKILL_DIR/count_open.py" "$USER_LOGIN"
 ```
 
@@ -273,6 +297,9 @@ Immediately output one line, before any further tool call:
 3. **All commented files upfront:** Collect the unique file paths from open threads. Read ALL of them now using parallel Read calls — do NOT re-read per comment in Step 3.
 
 ```bash
+# Each bash block is its own shell; resolve rather than inherit.
+SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
+
 # Extract unique file paths from open threads, then Read ALL these files in parallel
 python3 "$SKILL_DIR/extract_paths.py"
 ```
@@ -746,6 +773,10 @@ Resolution depends on comment type:
 **For review threads** (type = `review-thread`):
 
 ```bash
+# Each bash block is its own shell; resolve rather than inherit.
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+GH="$GH_ROOT/skills/github-curl/gh.py"
+
 # Resolve using the thread's PRRT_ ID
 python3 "$GH" thread-resolve "$THREAD_ID" --format resolve-status
 ```
@@ -753,6 +784,10 @@ python3 "$GH" thread-resolve "$THREAD_ID" --format resolve-status
 **For issue comments** (type = `issue-comment`):
 
 ```bash
+# Each bash block is its own shell; resolve rather than inherit.
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+GH="$GH_ROOT/skills/github-curl/gh.py"
+
 # Resolve by minimizing the comment (uses node_id, e.g. IC_...)
 python3 "$GH" comment-resolve "$NODE_ID" --format error-check
 ```
