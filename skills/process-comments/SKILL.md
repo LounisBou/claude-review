@@ -125,9 +125,19 @@ scratch directory therefore derives the path itself:
 ```bash
 GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
 GH="$GH_ROOT/skills/github-curl/gh.py"
-PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+PR_NUM=$(python3 "$GH" pr-get --format pr-number) || exit 1
 export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 ```
+
+`|| exit 1`, on that derivation as much as on the resolver line above it: a
+block that carries on after the tool has failed does not stop, it degrades. An
+unguarded `PR_NUM` leaves the path at `/tmp/claude-pr-review-`, a bucket shared
+with every other failed run, and the count taken from it is a plausible zero —
+the skill then announces "No open review comments" and stops, having dropped
+every comment on the PR. The same holds for `USER_LOGIN`, re-derived from
+`extract_user_login.py` in each block that passes it to a helper: inherited, it
+is empty, and an empty login silently excludes none of the author's own reviews
+and auto-passes no thread.
 
 `export`, not plain assignment: the helper scripts in `$SKILL_DIR` read
 `PR_REVIEW_TMP` from the environment and fall back to `/tmp/claude` when it is
@@ -161,12 +171,12 @@ python3 "$GH" auth-check --format error-check
 # The per-run directory, keyed on the PR number so that every later block can
 # derive the same path with nothing but the tool. Two PRs stay separate, and
 # the directory exists before the first write lands in it.
-PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+PR_NUM=$(python3 "$GH" pr-get --format pr-number) || exit 1
 export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 mkdir -p "$PR_REVIEW_TMP"
 
 python3 "$GH" pr-get --format raw > "$PR_REVIEW_TMP/pr.json"
-USER_LOGIN=$(python3 "$SKILL_DIR/extract_user_login.py")
+USER_LOGIN=$(python3 "$SKILL_DIR/extract_user_login.py") || exit 1
 ```
 
 **If PR_NUM is empty:** Tell the user there is no PR associated with the current branch and stop.
@@ -177,7 +187,7 @@ USER_LOGIN=$(python3 "$SKILL_DIR/extract_user_login.py")
 # Each bash block is its own shell; resolve and re-derive rather than inherit.
 GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
 GH="$GH_ROOT/skills/github-curl/gh.py"
-PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+PR_NUM=$(python3 "$GH" pr-get --format pr-number) || exit 1
 export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 
 # Call 1: issue comments (general PR conversation)
@@ -199,7 +209,7 @@ nothing downstream of this skill reads the unfiltered thread list.
 # Each bash block is its own shell; resolve and re-derive rather than inherit.
 GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
 GH="$GH_ROOT/skills/github-curl/gh.py"
-PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+PR_NUM=$(python3 "$GH" pr-get --format pr-number) || exit 1
 export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 
 # Review threads: the "open-threads" formatter applies at fetch time — there
@@ -239,12 +249,15 @@ After this phase, `$PR_REVIEW_TMP/open-issue-comments.json` contains ONLY open (
 ```bash
 # Each bash block is its own shell; resolve and re-derive rather than inherit.
 # filter_reviews.py reads PR_REVIEW_TMP from the environment, so this block
-# derives it too — unset, the script would read /tmp/claude instead.
+# derives it too — unset, the script would read /tmp/claude instead. USER_LOGIN
+# is re-derived for the same reason: inherited it is empty, and an empty login
+# excludes none of the author's own reviews.
 GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
 GH="$GH_ROOT/skills/github-curl/gh.py"
 SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
-PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+PR_NUM=$(python3 "$GH" pr-get --format pr-number) || exit 1
 export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
+USER_LOGIN=$(python3 "$SKILL_DIR/extract_user_login.py") || exit 1
 
 # Reviews: filter to those with non-empty body, excluding PR author's own reviews
 python3 "$SKILL_DIR/filter_reviews.py" "$USER_LOGIN"
@@ -258,7 +271,7 @@ python3 "$SKILL_DIR/filter_reviews.py" "$USER_LOGIN"
 GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
 export GH_ROOT
 GH="$GH_ROOT/skills/github-curl/gh.py"
-PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+PR_NUM=$(python3 "$GH" pr-get --format pr-number) || exit 1
 export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 
 # thread-summary and pr-details are formatters on a live fetch, per the
@@ -291,12 +304,15 @@ print(fmt.render('issue-comments-summary', comments))
 
 ```bash
 # Each bash block is its own shell; resolve and re-derive rather than inherit.
-# count_open.py reads PR_REVIEW_TMP from the environment.
+# count_open.py reads PR_REVIEW_TMP from the environment, and USER_LOGIN is
+# re-derived alongside it: inherited it is empty, and an empty login auto-passes
+# no thread at all.
 GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
 GH="$GH_ROOT/skills/github-curl/gh.py"
 SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
-PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+PR_NUM=$(python3 "$GH" pr-get --format pr-number) || exit 1
 export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
+USER_LOGIN=$(python3 "$SKILL_DIR/extract_user_login.py") || exit 1
 
 python3 "$SKILL_DIR/count_open.py" "$USER_LOGIN"
 ```
@@ -340,7 +356,7 @@ Immediately output one line, before any further tool call:
 GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
 GH="$GH_ROOT/skills/github-curl/gh.py"
 SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
-PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+PR_NUM=$(python3 "$GH" pr-get --format pr-number) || exit 1
 export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 
 # Extract unique file paths from open threads, then Read ALL these files in parallel
@@ -355,7 +371,7 @@ python3 "$SKILL_DIR/extract_paths.py"
 # Each bash block is its own shell; resolve and re-derive rather than inherit.
 GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
 GH="$GH_ROOT/skills/github-curl/gh.py"
-PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+PR_NUM=$(python3 "$GH" pr-get --format pr-number) || exit 1
 export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 
 python3 -c "
