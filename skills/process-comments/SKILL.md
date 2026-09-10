@@ -45,7 +45,7 @@ digraph iron_rules {
 
 **A reviewer requesting a change is necessary but NOT sufficient.** Every change request must be evaluated against:
 
-1. Project norms and standards (CLAUDE.md, norms.md)
+1. Project norms and standards (CLAUDE.md, CONTRIBUTING.md)
 2. Codebase patterns (how do similar files handle this?)
 3. Feature purpose and intent (PR description, ticket)
 4. Code quality impact (does the change actually improve things?)
@@ -138,7 +138,7 @@ python3 "$GH" pr-issue-comments "$PR_NUM" --format raw > "$PR_REVIEW_TMP/issue-c
 # Call 2: review body comments (text submitted with a review action)
 python3 "$GH" pr-reviews "$PR_NUM" --format raw > "$PR_REVIEW_TMP/reviews.json"
 
-# Call 3: read CLAUDE.md + norms.md (use Read tool in parallel)
+# Call 3: read CLAUDE.md + CONTRIBUTING.md (use Read tool in parallel)
 ```
 
 Review threads (inline code comments) are fetched directly in the filtered
@@ -251,7 +251,7 @@ Immediately output one line, before any further tool call:
 
 **Read these in parallel (multiple Read calls in ONE message):**
 
-1. **Project norms:** Read `CLAUDE.md`, `norms.md` — coding standards and conventions.
+1. **Project norms:** Read `CLAUDE.md`, `CONTRIBUTING.md` — coding standards and conventions.
 2. **PR intent:** Already fetched via `pr-details` above. Understand the feature's purpose.
 3. **All commented files upfront:** Collect the unique file paths from open threads. Read ALL of them now using parallel Read calls — do NOT re-read per comment in Step 3.
 
@@ -470,7 +470,7 @@ Use the context already gathered (Full tier: Step 0.5 pre-read everything; Fast 
 **Tier does NOT change per-comment rigor.** Fast tier skips the TODO list and the bulk pre-fetch — it does not skip evidence gathering. Every comment still gets the full 6-dimension assessment in Step 3.3, with codebase patterns verified by Grep.
 
 1. **Check codebase patterns:** If the reviewer suggests a different approach, search the codebase for how other files handle this SAME concern. Use Grep to find 2-3 examples. **Skip if the pre-read files already answer the question.**
-2. **Check project norms:** Reference the CLAUDE.md/norms.md already read in Step 0.5.
+2. **Check project norms:** Reference the CLAUDE.md/CONTRIBUTING.md already read in Step 0.5.
 3. **Check feature intent:** Reference the PR description already fetched in Step 0.
 4. **Verify reviewer claims:** If the reviewer claims properties, fields, types, or behaviors exist — **SEARCH the codebase to verify.** If you cannot find them, you CANNOT mark Technical accuracy as ✅. Ask the user: "I can't find [X] in the codebase. Where can I verify this?"
 
@@ -514,7 +514,7 @@ Evaluate the comment through **all 6 dimensions**. The comment must pass ALL to 
 | Dimension                  | Question                                                                 | Fail =                                             |
 | -------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------- |
 | **Technical accuracy**     | Is the reviewer's claim factually correct?                               | Disagree — reviewer misunderstands the code        |
-| **Project norm alignment** | Does the change align with CLAUDE.md/norms.md?                           | Disagree — contradicts project standards           |
+| **Project norm alignment** | Does the change align with CLAUDE.md/CONTRIBUTING.md?                           | Disagree — contradicts project standards           |
 | **Codebase consistency**   | Do similar files in the project follow the reviewer's suggested pattern? | Disagree — breaks established patterns             |
 | **Feature purpose**        | Does the change serve the feature's stated intent?                       | Disagree — undermines what the PR is trying to do  |
 | **Code quality**           | Does the change make the code concretely better (not just different)?    | Disagree — change is lateral, not an improvement   |
@@ -556,7 +556,7 @@ Evaluate the comment through **all 6 dimensions**. The comment must pass ALL to 
 | Dimension            | Verdict  | Evidence                                                                    |
 | -------------------- | -------- | --------------------------------------------------------------------------- |
 | Technical accuracy   | ✅/⚠️/❌ | <specific evidence>                                                         |
-| Project norms        | ✅/⚠️/❌ | <specific evidence from CLAUDE.md/norms.md, or "no relevant norm">          |
+| Project norms        | ✅/⚠️/❌ | <specific evidence from CLAUDE.md/CONTRIBUTING.md, or "no relevant norm">          |
 | Codebase consistency | ✅/⚠️/❌ | <specific evidence — cite files checked and patterns found>                 |
 | Feature purpose      | ✅/⚠️/❌ | <specific evidence from PR description/ticket>                              |
 | Code quality         | ✅/⚠️/❌ | <concrete improvement identified, or "lateral change — not an improvement"> |
