@@ -115,6 +115,26 @@ Blocks whose inline Python reads `GH_ROOT` from the environment add
 `error:` line and a `fix:` line naming the install command; stop there rather
 than continuing without the tool.
 
+**The scratch directory follows the same rule.** It is keyed on the PR number
+— `/tmp/claude-pr-review-$PR_NUM` — precisely so that every block can work out
+where it is without being told: the PR number is re-derivable anywhere with
+`python3 "$GH" pr-get --format pr-number`, whereas a shell PID (`$$`) is
+knowable only inside the one shell that read it. A block that reaches into the
+scratch directory therefore derives the path itself:
+
+```bash
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+GH="$GH_ROOT/skills/github-curl/gh.py"
+PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
+```
+
+`export`, not plain assignment: the helper scripts in `$SKILL_DIR` read
+`PR_REVIEW_TMP` from the environment and fall back to `/tmp/claude` when it is
+missing, which is a different directory from the one every other block uses.
+Two runs on two different PRs still get two directories; two runs on the *same*
+PR share one, and write the same content into it.
+
 `gh.py` takes no JSON on stdin. Every call below either names a real
 subcommand (optionally with `--format <name>` to shape its own output) or
 runs one of the helper scripts in `$SKILL_DIR` against files already written
@@ -136,15 +156,16 @@ GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
 GH="$GH_ROOT/skills/github-curl/gh.py"
 SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
 
-# A unique, per-run directory: concurrent runs of this skill (two PRs, two
-# terminals) must not overwrite each other's files, and the directory must
-# exist before the first write lands in it.
-export PR_REVIEW_TMP="/tmp/claude-pr-review-$$"
+python3 "$GH" auth-check --format error-check
+
+# The per-run directory, keyed on the PR number so that every later block can
+# derive the same path with nothing but the tool. Two PRs stay separate, and
+# the directory exists before the first write lands in it.
+PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 mkdir -p "$PR_REVIEW_TMP"
 
-python3 "$GH" auth-check --format error-check
 python3 "$GH" pr-get --format raw > "$PR_REVIEW_TMP/pr.json"
-PR_NUM=$(python3 "$GH" pr-get --format pr-number)
 USER_LOGIN=$(python3 "$SKILL_DIR/extract_user_login.py")
 ```
 
@@ -153,9 +174,11 @@ USER_LOGIN=$(python3 "$SKILL_DIR/extract_user_login.py")
 **Phase 2 — Fetch ALL data in parallel (3 Bash calls in ONE message):**
 
 ```bash
-# Each bash block is its own shell; resolve rather than inherit.
+# Each bash block is its own shell; resolve and re-derive rather than inherit.
 GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
 GH="$GH_ROOT/skills/github-curl/gh.py"
+PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 
 # Call 1: issue comments (general PR conversation)
 python3 "$GH" pr-issue-comments "$PR_NUM" --format raw > "$PR_REVIEW_TMP/issue-comments.json"
@@ -173,9 +196,11 @@ nothing downstream of this skill reads the unfiltered thread list.
 **Phase 3 — Filter to open comments only:**
 
 ```bash
-# Each bash block is its own shell; resolve rather than inherit.
+# Each bash block is its own shell; resolve and re-derive rather than inherit.
 GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
 GH="$GH_ROOT/skills/github-curl/gh.py"
+PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 
 # Review threads: the "open-threads" formatter applies at fetch time — there
 # is no local "threads.json" to filter, because gh.py always calls the live
@@ -212,8 +237,14 @@ print('Open issue comments:', len(open_comments))
 After this phase, `$PR_REVIEW_TMP/open-issue-comments.json` contains ONLY open (non-resolved) issue comments. **Use this file for all downstream operations** (summary, images, TODO list). Resolved issue comments are gone — they will never appear in the TODO list.
 
 ```bash
-# Each bash block is its own shell; resolve rather than inherit.
+# Each bash block is its own shell; resolve and re-derive rather than inherit.
+# filter_reviews.py reads PR_REVIEW_TMP from the environment, so this block
+# derives it too — unset, the script would read /tmp/claude instead.
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+GH="$GH_ROOT/skills/github-curl/gh.py"
 SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
+PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 
 # Reviews: filter to those with non-empty body, excluding PR author's own reviews
 python3 "$SKILL_DIR/filter_reviews.py" "$USER_LOGIN"
@@ -227,6 +258,8 @@ python3 "$SKILL_DIR/filter_reviews.py" "$USER_LOGIN"
 GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
 export GH_ROOT
 GH="$GH_ROOT/skills/github-curl/gh.py"
+PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 
 # thread-summary and pr-details are formatters on a live fetch, per the
 # pattern above — one call each, no intermediate file needed.
@@ -257,8 +290,13 @@ print(fmt.render('issue-comments-summary', comments))
 **Before building any context, count the open comments and tell the user.** The user must never wait through the full setup without knowing how much work there actually is.
 
 ```bash
-# Each bash block is its own shell; resolve rather than inherit.
+# Each bash block is its own shell; resolve and re-derive rather than inherit.
+# count_open.py reads PR_REVIEW_TMP from the environment.
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+GH="$GH_ROOT/skills/github-curl/gh.py"
 SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
+PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 
 python3 "$SKILL_DIR/count_open.py" "$USER_LOGIN"
 ```
@@ -297,8 +335,13 @@ Immediately output one line, before any further tool call:
 3. **All commented files upfront:** Collect the unique file paths from open threads. Read ALL of them now using parallel Read calls — do NOT re-read per comment in Step 3.
 
 ```bash
-# Each bash block is its own shell; resolve rather than inherit.
+# Each bash block is its own shell; resolve and re-derive rather than inherit.
+# extract_paths.py reads PR_REVIEW_TMP from the environment.
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+GH="$GH_ROOT/skills/github-curl/gh.py"
 SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
+PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 
 # Extract unique file paths from open threads, then Read ALL these files in parallel
 python3 "$SKILL_DIR/extract_paths.py"
@@ -309,6 +352,12 @@ python3 "$SKILL_DIR/extract_paths.py"
 **Image pre-download:** There is no `issue-comment-images` subcommand or formatter in github-curl — extracting embedded image URLs from comment bodies is plain text scanning, not a GitHub API call, so it does not belong in gh.py. Do it locally and download with auth. (This snippet avoids both `!=` and a literal `!`, since the Bash tool's own escaping of `!` would corrupt a markdown `![...]` pattern just as it corrupts `!=`; matching on file extension and on GitHub's known image hosts instead sidesteps that entirely.)
 
 ```bash
+# Each bash block is its own shell; resolve and re-derive rather than inherit.
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+GH="$GH_ROOT/skills/github-curl/gh.py"
+PR_NUM=$(python3 "$GH" pr-get --format pr-number)
+export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
+
 python3 -c "
 import json, re
 comments = json.load(open('$PR_REVIEW_TMP/open-issue-comments.json'))
@@ -325,7 +374,10 @@ for c in comments:
 for url in dict.fromkeys(urls):
     print(url)
 "
-# For each URL printed above: curl -sL -H "Authorization: Bearer $GH_TOKEN" --connect-timeout 10 --max-time 30 -o "$PR_REVIEW_TMP/img_N.png" "$URL"
+# For each URL printed above, in whatever block does the download, spell the
+# scratch directory out — /tmp/claude-pr-review-<PR number>, the number being the
+# one announced at Step 1 — because a fresh shell has no $PR_REVIEW_TMP:
+# curl -sL -H "Authorization: Bearer $GH_TOKEN" --connect-timeout 10 --max-time 30 -o "/tmp/claude-pr-review-<PR number>/img_N.png" "$URL"
 ```
 
 **If no open comments in ANY of the three categories (threads, issue comments, review body comments):** Tell the user "No open review comments found on this PR." and stop. (Already handled by the Step 1 triage — you should never reach here with 0 comments.)
@@ -471,7 +523,7 @@ Display the full comment with context:
 
 ### Attached images
 
-<For each image URL: download with curl -sL -H "Authorization: Bearer $GH_TOKEN" to "$PR_REVIEW_TMP/img_N.png", then Read to display>
+<For each image URL: download with curl -sL -H "Authorization: Bearer $GH_TOKEN" to "/tmp/claude-pr-review-<PR number>/img_N.png" — the scratch directory from Step 0, spelled out because a fresh shell has no $PR_REVIEW_TMP — then Read to display>
 ```
 
 **Images are important context.** If the reviewer attached screenshots/diagrams, display them — they often show bugs or expected behavior that text alone doesn't convey.

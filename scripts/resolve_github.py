@@ -33,8 +33,18 @@ def resolve(env=None, state_path=None):
     """Return the github plugin's root directory, or raise NotFound."""
     env = os.environ if env is None else env
 
+    # An empty override is no override at all: fall through to the state file.
+    # A non-empty one that names nothing on disk is a misconfiguration, and it
+    # gets the same treatment as a recorded installPath that is gone — handing
+    # the path back would satisfy the caller's `|| exit 1` and move the failure
+    # to some later block, far from its cause.
     override = env.get("CLAUDE_GITHUB_ROOT")
     if override:
+        if not os.path.isdir(override):
+            raise NotFound(
+                "CLAUDE_GITHUB_ROOT is not a directory: %s" % override,
+                "unset CLAUDE_GITHUB_ROOT, or point it at a checkout of the github plugin",
+            )
         return override
 
     path = state_path or env.get("CLAUDE_PLUGIN_STATE") or os.path.expanduser(DEFAULT_STATE)
