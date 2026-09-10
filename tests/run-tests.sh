@@ -991,13 +991,20 @@ check_status "recorded but absent path exits 1" 1 \
   env CLAUDE_PLUGIN_STATE="$WORK/gone.json" python3 "$RESOLVE"
 
 # 5. A state file of the wrong shape is a failure, never a silent pass.
+# Exit code alone cannot tell "the shape guard fired" apart from "some other
+# guard fired for an unrelated reason and happened to also exit 1" — assert on
+# the distinct NotFound message the shape guard raises.
 printf '{"plugins": "not-a-dict"}' > "$WORK/wrong.json"
 check_status "wrong-shaped state exits 1" 1 \
   env CLAUDE_PLUGIN_STATE="$WORK/wrong.json" python3 "$RESOLVE"
+check "wrong-shaped state names the actual problem" "1" \
+  "$(CLAUDE_PLUGIN_STATE="$WORK/wrong.json" python3 "$RESOLVE" 2>&1 | grep -c 'has no plugins map')"
 
 printf 'not json at all' > "$WORK/bad.json"
 check_status "unparseable state exits 1" 1 \
   env CLAUDE_PLUGIN_STATE="$WORK/bad.json" python3 "$RESOLVE"
+check "unparseable state names the actual problem" "1" \
+  "$(CLAUDE_PLUGIN_STATE="$WORK/bad.json" python3 "$RESOLVE" 2>&1 | grep -c 'is not valid JSON')"
 
 
 echo
