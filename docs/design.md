@@ -266,6 +266,31 @@ Affected repositories: `geonative-api`, `geonative-api-bis`,
   separate concern and would widen this plugin past PR review.
 - Migrating anything before the plugin is built, tested and validated.
 
+## Live validation — 2026-09-10
+
+The plugin was published and exercised against the real GitHub API for the first
+time. What now has evidence behind it, beyond fixtures:
+
+| Call | Result |
+|---|---|
+| `auth-check` | authenticated as the token's owner |
+| `preflight.sh` on a real clone | exit 10 — correctly refused because `code-review` is installed but disabled, printing the exact remedy |
+| `pr-list` | 7 open PRs on one repository, 13 on another |
+| `pr-status --format pr-details` | number, title, state, draft, head, base, url |
+| `pr-files` | changed paths returned through the paginated path |
+| `pr-threads` (GraphQL) | round-trips; the whole GraphQL path was previously untested |
+| `pr-issue-comments`, `open-threads`, `resolved-threads`, `thread-summary`, `issue-comments-summary` | all render |
+
+The preflight result is the one worth noting: the guard refused to run on a real
+machine for exactly the reason it was designed around — a dependency present on
+disk and set to false — and said which command fixes it.
+
+**Still unproven:** no PR with open review threads was found across the repositories
+checked, so `thread-summary` and `open-threads` have only ever rendered an empty
+set. The write paths — `pr-comment`, `thread-reply`, `review-submit`, `image-upload`,
+`pr-create`, `pr-merge` — have never been fired at a live repository, deliberately:
+they mutate someone's pull request.
+
 ## Known gaps at the end of phase 1
 
 The suite is offline by construction, so nothing here demonstrates that a real call
