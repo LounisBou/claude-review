@@ -3,7 +3,6 @@
 __pycache__/
 *.pyc
 
-# The global ~/.gitignore on some machines ignores `docs/`. A repository
-# .gitignore takes precedence over global excludes, so this negation restores
-# docs/ for this project, where the design document is versioned.
-!docs/
+# docs/ holds specs and implementation plans. They are working artefacts and
+# stay local: the global ~/.gitignore excludes them and this repository does
+# not override that.
