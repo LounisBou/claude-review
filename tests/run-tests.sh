@@ -60,6 +60,25 @@ check "manifest declares the dependency" "github@lounisbou" \
 check "manifest version" "0.3.0" \
   "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/.claude-plugin/plugin.json")"
 
+# The marketplace entry is a second copy of the same facts, read by the host that
+# installs the plugin rather than the one that loads it. A copy that drifts
+# advertises one version and ships another, and nothing else here would say so.
+MANIFEST_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/.claude-plugin/plugin.json")
+check "marketplace and manifest agree on the version" \
+  "$MANIFEST_VERSION $MANIFEST_VERSION $MANIFEST_VERSION" \
+  "$(python3 -c 'import json,sys
+plugin = json.load(open(sys.argv[1]))
+market = json.load(open(sys.argv[2]))
+print(plugin["version"], market["plugins"][0]["version"], market["metadata"]["version"])' \
+    "$ROOT/.claude-plugin/plugin.json" "$ROOT/.claude-plugin/marketplace.json")"
+
+check "marketplace and manifest share one description" "" \
+  "$(python3 -c 'import json,sys
+plugin = json.load(open(sys.argv[1]))["description"]
+market = json.load(open(sys.argv[2]))["plugins"][0]["description"]
+print("" if plugin == market else "plugin: %s / marketplace: %s" % (plugin, market))' \
+    "$ROOT/.claude-plugin/plugin.json" "$ROOT/.claude-plugin/marketplace.json")"
+
 # No skill may hardcode a sibling plugin's cache path.
 check "no skill builds a cache path" "" \
   "$(grep -rl 'plugins/cache' "$ROOT/skills" 2>/dev/null)"
@@ -394,12 +413,33 @@ echo "== start-review pending review =="
 START_DOC="$ROOT/skills/start-review/SKILL.md"
 
 # The pending review is the default destination of a kept comment; the immediate
-# path stays for an explicit request. So review-submit lives in exactly one bash
-# block, and --event never appears outside it.
+# path stays for an explicit request. So review-submit lives in exactly one fence,
+# and --event never appears outside it.
+#
+# Every fence, not only the bash ones: the document shows the user a plain fence
+# holding the completion summary and a four-backtick fence holding the item
+# format, and a call written in either would have been read by nobody. A fence
+# opens on three or more backticks and closes on at least as many, which is what
+# keeps the ```php example nested inside the item format from closing it.
+FENCES='function bt(  c) { c = 0; while (substr($0, c + 1, 1) == "`") c++; return c }
+/^```/ { n = bt(); if (!f) { f = 1; fence = n; blk = ""; next }
+         if (n >= fence) { CLOSE; f = 0; next } }
+f { if (blk == "") s = NR; blk = blk "\n" $0 }'
+
 check "start-review submits from exactly one bash block" "1" \
-  "$(awk '/^```bash/{f=1; b=0; next} /^```/{if(f&&b)n++; f=0} f && /review-submit/ {b=1} END{print n+0}' "$START_DOC")"
+  "$(awk "${FENCES/CLOSE/if (blk ~ /review-submit/) cnt++} END { print cnt + 0 }" "$START_DOC")"
 check "start-review passes --event only beside review-submit" "" \
-  "$(awk '/^```bash/{f=1; blk=""; next} /^```/{if(f && blk ~ /--event/ && blk !~ /review-submit/) print s; f=0} f{ if(blk=="") s=NR; blk=blk"\n"$0 }' "$START_DOC")"
+  "$(awk "${FENCES/CLOSE/if (blk ~ /--event/ && blk !~ /review-submit/) print s}" "$START_DOC")"
+
+# "post" sends nothing. A tool call anywhere in that section is the defect the
+# whole design exists to prevent, and it would read as legitimate.
+check "start-review calls no tool under post" "" \
+  "$(awk '/^## After "post"$/ { f = 1; next } /^## / { f = 0 } f && /python3 "\$GH"/ { print NR }' "$START_DOC")"
+
+# The pending review is written once, at completion. A write reached from an
+# item's own turn would publish part of the walkthrough while it is still running.
+check "start-review writes the review only at completion" "" \
+  "$(awk '/^## / { section = $0 } /review-pending-(create|add)/ && section !~ /^## Completion/ { print NR }' "$START_DOC")"
 
 # The three pending subcommands are the new path; the contract loop proves they exist.
 for sub in review-pending review-pending-create review-pending-add; do

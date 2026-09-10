@@ -44,9 +44,9 @@ repeat it.
 ## The skills
 
 **`/pr-review:start-review`** — an interactive walkthrough of review findings. It
-builds a numbered list, then presents one item at a time and waits, and the comments
-kept along the way go into a single review left pending on the PR, invisible to the
-author until the user reads it, edits it and submits it on GitHub. Applying a fix
+builds a numbered list, then presents one item at a time and waits. The comments kept
+along the way go into a single review left pending on the PR, which the author cannot
+see until the user reads it, edits it and submits it on GitHub. Applying a fix
 happens only on the explicit `fix` command, and publishing a comment on the spot only
 on `post now`.
 
