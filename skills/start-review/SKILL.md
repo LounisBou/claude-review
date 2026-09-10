@@ -267,7 +267,25 @@ If you catch yourself thinking:
 
 1. **Post the English version. Always.** Never ask the user which language — see Language Rules.
 2. Post as an **inline comment on the cited file and line** where the anchor is inside the PR diff; fall back to a top-level PR comment when the line is outside the diff (a migration filename, a missing test) — and say which you used.
-3. Use the `github-curl` skill for the GitHub API — `gh api` fails in the sandbox, and so does hand-built `curl`: `github-curl`'s `gh.py` already covers both destinations, so never call `curl` directly here. For the inline case, write a one-element JSON array of `{"path": ..., "line": ..., "side": "RIGHT", "body": "..."}` to a file with `python3`'s `json.dump` (so markdown special characters are escaped correctly, not hand-quoted) and submit it as a review: `python3 "${CLAUDE_PLUGIN_ROOT}/skills/github-curl/gh.py" review-submit <PR> --event COMMENT --comments-file <file>`. For the top-level fallback, write the body to its own file and use `python3 "${CLAUDE_PLUGIN_ROOT}/skills/github-curl/gh.py" pr-comment <PR> --body-file <file>` instead.
+3. Use the `github-curl` skill for the GitHub API — `gh api` fails in the sandbox, and so does hand-built `curl`: `github-curl`'s `gh.py` already covers both destinations, so never call `curl` directly here. It ships in the separate `github` plugin, which `${CLAUDE_PLUGIN_ROOT}` cannot reach, so resolve its root through the platform's install record rather than assembling a path into the plugin cache by hand:
+
+```bash
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+GH="$GH_ROOT/skills/github-curl/gh.py"
+```
+
+   The resolver prints an `error:` line and a `fix:` line of its own when the dependency is missing; stop there rather than posting by some other route. For the inline case, write a one-element JSON array of `{"path": ..., "line": ..., "side": "RIGHT", "body": "..."}` to a file with `python3`'s `json.dump` (so markdown special characters are escaped correctly, not hand-quoted) and submit it as a review:
+
+```bash
+python3 "$GH" review-submit <PR> --event COMMENT --comments-file <file>
+```
+
+   For the top-level fallback, write the body to its own file and use this instead:
+
+```bash
+python3 "$GH" pr-comment <PR> --body-file <file>
+```
+
 4. Confirm with the posted URL.
 5. **WAIT** — do not auto-advance.
 

@@ -20,7 +20,7 @@ if [ "$code" -eq 0 ]; then
   echo "  /pr-review:process-comments   work through a PR's comments interactively"
   echo "  /pr-review:auto-fix-loop      review, fix and re-review until clean"
   echo
-  echo "GitHub tool: \${CLAUDE_PLUGIN_ROOT}/skills/github-curl/gh.py"
+  echo "GitHub tool: provided by the github plugin dependency"
   exit 0
 fi
 

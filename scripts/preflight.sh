@@ -34,7 +34,18 @@ esac
 if [ "${PR_REVIEW_SKIP_PLUGINS:-0}" != "1" ]; then
   missing=$(python3 - "$SETTINGS" <<'PY'
 import json, sys
-required = ["pr-review-toolkit@claude-plugins-official", "code-review@claude-plugins-official"]
+# One tuple per dependency: the keys that each satisfy it. The first key is the
+# canonical name, reported when none of the alternatives is enabled, so a
+# dependency is never named twice. The github plugin resolves under its own
+# marketplace key and under the aggregate one -- exactly the pair
+# resolve_github.py accepts -- and which key a machine carries depends on where
+# it installed from. Demanding one exact key would refuse to start on every
+# machine that already has the plugin under the other.
+required = [
+    ("pr-review-toolkit@claude-plugins-official",),
+    ("code-review@claude-plugins-official",),
+    ("github@lounisbou", "github@claude-github"),
+]
 try:
     with open(sys.argv[1]) as fh:
         data = json.load(fh)
@@ -44,9 +55,12 @@ try:
 except (OSError, ValueError, KeyError, TypeError):
     # Unreadable, not JSON, or JSON of the wrong shape all mean the same
     # thing: nothing here proves a dependency is enabled.
-    print(" ".join(required))
+    print(" ".join(group[0] for group in required))
     sys.exit(0)
-print(" ".join(k for k in required if enabled.get(k) is not True))
+print(" ".join(
+    group[0] for group in required
+    if not any(enabled.get(key) is True for key in group)
+))
 PY
 )
   py_status=$?

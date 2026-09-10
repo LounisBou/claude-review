@@ -16,7 +16,7 @@ action. A non-zero exit stops the skill: print its output verbatim and do nothin
 
 **Announce at start:** "Using pr-review:process-comments to process PR feedback interactively."
 
-**REQUIRED SUB-SKILL:** Use `github-curl` for all GitHub API calls (sandbox-safe curl scripts).
+**REQUIRED SUB-SKILL:** Use the `github` plugin's `github-curl` skill for all GitHub API calls. Its location is resolved below, never hard-coded.
 
 ## Iron Rules
 
@@ -90,14 +90,23 @@ If you catch yourself thinking any of these, STOP:
 
 ### GitHub API Scripts
 
-All GitHub API calls use the `github-curl` skill's `gh.py`. Inside a plugin the
-path is always `${CLAUDE_PLUGIN_ROOT}` — there is no project-vs-home lookup to
-do. Define the two paths once, at the top of the first bash block:
+All GitHub API calls use the `github-curl` skill's `gh.py`, which ships in the
+separate `github` plugin. `${CLAUDE_PLUGIN_ROOT}` names this plugin's own
+directory and cannot reach a sibling, so the sibling's root is resolved through
+the platform's own install record — never by assembling a path into the plugin
+cache by hand, whose directory names are sometimes git SHAs rather than
+versions. `GH_ROOT` is exported, because the inline Python below needs it too.
+Define the paths once, at the top of the first bash block:
 
 ```bash
-GH="${CLAUDE_PLUGIN_ROOT}/skills/github-curl/gh.py"
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+export GH_ROOT
+GH="$GH_ROOT/skills/github-curl/gh.py"
 SKILL_DIR="${CLAUDE_PLUGIN_ROOT}/skills/process-comments/scripts"
 ```
+
+If the resolver fails it has already printed an `error:` line and a `fix:` line
+naming the install command; stop there rather than continuing without the tool.
 
 `gh.py` takes no JSON on stdin. Every call below either names a real
 subcommand (optionally with `--format <name>` to shape its own output) or
@@ -190,6 +199,14 @@ python3 "$SKILL_DIR/filter_reviews.py" "$USER_LOGIN"
 **Phase 4 — Display summaries:**
 
 ```bash
+# Shell variables do not survive from one Bash call to the next, so this block
+# re-resolves and re-exports GH_ROOT rather than assuming the first block's
+# export is still in scope: the inline python3 below reads it from the
+# environment, and an unset GH_ROOT there is a KeyError, not a fallback.
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+export GH_ROOT
+GH="$GH_ROOT/skills/github-curl/gh.py"
+
 # thread-summary and pr-details are formatters on a live fetch, per the
 # pattern above — one call each, no intermediate file needed.
 python3 "$GH" pr-threads "$PR_NUM" --format thread-summary
@@ -201,8 +218,8 @@ python3 "$GH" pr-get --format pr-details
 # function itself (read-only import of github-curl, not a modification of
 # it) against the filtered file instead of re-fetching every comment again:
 python3 -c "
-import sys, json
-sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/skills/github-curl')
+import os, sys, json
+sys.path.insert(0, os.path.join(os.environ['GH_ROOT'], 'skills', 'github-curl'))
 from ghlib import fmt
 comments = json.load(open('$PR_REVIEW_TMP/open-issue-comments.json'))
 print(fmt.render('issue-comments-summary', comments))
