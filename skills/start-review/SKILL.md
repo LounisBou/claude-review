@@ -84,6 +84,7 @@ digraph start_review {
     next_item [label="Move to next item"];
     completion [label="Completion: write ONE review,\nleft PENDING, when anything was kept"];
     commit_cmd [label="Create the prepared commits,\nreport the SHAs, push nothing"];
+    drop_cmd [label="Discard prepared commits,\nunstage, delete their messages"];
     done [label="User submits it on GitHub" shape=ellipse];
 
     start -> check_review;
@@ -110,8 +111,10 @@ digraph start_review {
     next_item -> current [label="more items"];
     next_item -> completion [label="no more"];
     completion -> commit_cmd [label="\"commit\""];
+    completion -> drop_cmd [label="\"drop\""];
     completion -> done [label="nothing was fixed"];
     commit_cmd -> done;
+    drop_cmd -> completion;
 }
 ```
 
@@ -309,6 +312,8 @@ If you catch yourself thinking:
 | `fix all` | Apply fixes to ALL remaining items (explicit batch request), each one gated, staged and drafted as After "fix" describes, then go to Completion |
 | `skip all` | Mark all remaining as skipped, then go to Completion — the items already kept are written, never lost |
 | `commit` | At Completion only: create the commits prepared by the fixed items — see Completion |
+| `drop <n>` | At Completion only: discard the prepared commit of item n — unstage its files with `git restore --staged -- <the item's files>`, delete its message file, say so |
+| `drop all` | At Completion only: the same, for every prepared commit |
 
 `rework` is for a comment the user does not understand. The rewrite carries one main
 idea: the defect and the consequence the user can see, one sentence for the suggestion,
@@ -502,19 +507,19 @@ python3 "$GH" review-pending-add "$PR_NUM" --review-id <id> --path <path> --line
    commits", in the order the items were fixed, each with the subject of its
    message and the files it covers; say that the word `commit` creates them and
    that nothing is pushed. **WAIT** for that word. A prepared commit is not a
-   commit: the user may still want to rewrite a message, drop one, or commit
-   nothing at all. When no item was fixed, this step and its summary section
-   disappear.
+   commit: the user may still want to rewrite a message, drop one with
+   `drop <n>`, or commit nothing at all. When no item was fixed, this step and
+   its summary section disappear.
 
    A prepared commit is unfinished work. When the walkthrough is about to end
    without that word — the user stands the session down, asks for a handoff or
    a rotation, or the session must stop for any reason — the last message
    opens with one line, before any acknowledgment or summary:
-   `STOP: <N> prepared commits not created, say commit`, followed by the list
-   of the prepared commits (subject, files, the path of its message file in
-   the walkthrough's temporary directory), and the walkthrough waits for the
-   word. A session that ends with a prepared commit uncreated has ended on a
-   STOP, not on a summary, and says so in its last line.
+   `STOP: <N> prepared commits not created, say commit or drop`, followed by
+   the list of the prepared commits (subject, files, the path of its message
+   file in the walkthrough's temporary directory), and the walkthrough waits
+   for the word. A session that ends with a prepared commit uncreated has
+   ended on a STOP, not on a summary, and says so in its last line.
 
 8. **On `commit`**, create them in order, one commit per fixed item. The message
    travels by file, never as an argument — a multi-line message with backticks
@@ -530,6 +535,16 @@ git commit -F /tmp/claude-pr-review-<PR>/commit-<n>.msg -- <the item's files>
    together under a message covering both, and say which items share that commit.
    Report the short SHA and the subject of every commit created. **Nothing is
    pushed** — pushing is the user's, as submitting the review is.
+
+9. **On `drop <n>` or `drop all`**, discard the prepared commit(s): unstage
+   the item's files, delete its message file, and say so.
+
+```bash
+git restore --staged -- <the item's files>
+```
+
+   `drop all` repeats this for every prepared commit still staged. A `commit`
+   given afterwards creates only the prepared commits left.
 
 ```
 ## Walkthrough complete
@@ -559,7 +574,7 @@ Review <id> — state PENDING, <N> comments. Read it on GitHub and submit it the
 |---|---|---|
 <the table the read printed, verbatim>
 
-Say `commit` to create the <N> prepared commits. Nothing is pushed.
+Say `commit` to create the <N> prepared commits, or `drop <n>` / `drop all` to discard them. Nothing is pushed.
 ```
 
 ---

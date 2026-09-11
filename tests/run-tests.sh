@@ -554,6 +554,26 @@ check "start-review's core principle admits the user's batch commands" "1" \
        n++; if ($0 !~ /No batching/ && $0 ~ /one item at a time/) ok++ }
      END { if (n == 1 && ok == 1) print 1; else print 0 }' "$START_DOC")"
 
+# The row grants `drop <n>`; the Completion section is where `drop all` must
+# also appear, since both are STOP-shaped words that exist there and nowhere else.
+check "start-review discards a prepared commit on drop" "1" \
+  "$(awk "$FENCE_TRACK"'
+     !f && /^## User Commands/ { section = "cmds"; next }
+     !f && /^## Completion/ { section = "done"; next }
+     !f && /^## / { section = "" }
+     section == "cmds" && /^\| `drop <n>`/ { drop_row = 1 }
+     section == "done" && index($0, "drop all") { drop_all = 1 }
+     END { if (drop_row && drop_all) print 1; else print 0 }' "$START_DOC")"
+
+# The row promises an unstage command; the Completion section's own bash fence
+# must actually carry it, not just describe it in prose.
+check "start-review's drop command runs git restore --staged" "1" \
+  "$(awk "$FENCE_TRACK"'
+     !f && /^## Completion/ { in_done = 1; next }
+     !f && /^## / { in_done = 0 }
+     in_done && f && index($0, "git restore --staged") { hits++ }
+     END { if (hits > 0) print 1; else print 0 }' "$START_DOC")"
+
 echo "== github resolver =="
 
 RESOLVE="$ROOT/scripts/resolve_github.py"
