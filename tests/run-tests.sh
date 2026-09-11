@@ -527,6 +527,15 @@ check "start-review waits for commit at completion" "1" \
      in_done && /`commit`/ { hits++ }
      END { if (hits > 0) print 1; else print 0 }' "$START_DOC")"
 
+# A prepared commit is unfinished work if the walkthrough ends before the word
+# arrives; the section that ends it has to open on that fact as a STOP.
+check "start-review stops on a prepared commit left uncreated" "1" \
+  "$(awk "$FENCE_TRACK"'
+     !f && /^## Completion/ { in_done = 1; next }
+     !f && /^## / { in_done = 0 }
+     in_done && /prepared commits not created/ { hits++ }
+     END { if (hits > 0) print 1; else print 0 }' "$START_DOC")"
+
 # The walkthrough is item by item, and three of the user's own commands cover more
 # than one item. The rule that forbids advancing has to name them, or an agent that
 # reads it literally refuses a command the table grants.

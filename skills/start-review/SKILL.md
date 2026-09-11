@@ -506,6 +506,16 @@ python3 "$GH" review-pending-add "$PR_NUM" --review-id <id> --path <path> --line
    nothing at all. When no item was fixed, this step and its summary section
    disappear.
 
+   A prepared commit is unfinished work. When the walkthrough is about to end
+   without that word — the user stands the session down, asks for a handoff or
+   a rotation, or the session must stop for any reason — the last message
+   opens with one line, before any acknowledgment or summary:
+   `STOP: <N> prepared commits not created, say commit`, followed by the list
+   of the prepared commits (subject, files, the path of its message file in
+   the walkthrough's temporary directory), and the walkthrough waits for the
+   word. A session that ends with a prepared commit uncreated has ended on a
+   STOP, not on a summary, and says so in its last line.
+
 8. **On `commit`**, create them in order, one commit per fixed item. The message
    travels by file, never as an argument — a multi-line message with backticks
    does not survive shell quoting — and the item's files are named as a pathspec,
@@ -573,6 +583,7 @@ Say `commit` to create the <N> prepared commits. Nothing is pushed.
 | Anchoring on the symptom line | The author cannot act on it | Anchor on the defect line |
 | Moving on after a question | The user did not say `next` | Answer, then wait |
 | Mentioning agents or tooling in a comment | Non-business reference in a durable artifact | Write as one developer to another |
+| Ending a session, a handoff or a rotation with a prepared commit uncreated | Unfinished work survives the session in a staged tree and a `/tmp` file nobody reads | `STOP: <N> prepared commits not created, say commit`, then wait |
 
 ---
 
