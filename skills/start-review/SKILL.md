@@ -26,7 +26,7 @@ action. A non-zero exit stops the skill: print its output verbatim and do nothin
 NEVER apply code changes unless the user explicitly says "fix"
 NEVER publish anything the PR author can see unless the user explicitly says "post now"
 NEVER submit the pending review, resolve a thread or reply in one — post now is the only publication this skill performs, on that command alone
-NEVER move to the next item unless the user explicitly says "next"
+NEVER move to the next item unless the user explicitly says "next" or the item was just fixed with a green gate
 ```
 
 **No exceptions:**
@@ -76,13 +76,14 @@ digraph start_review {
     create_todo [label="Create TODO list\n(display to user)"];
     current [label="Current item:\n8-block format\n(see Step 3)\nWAIT"];
     user_input [label="User input?" shape=diamond];
-    apply_fix [label="Apply the fix\n(Edit code)"];
+    apply_fix [label="Apply the fix,\nrun the project's gate,\nstage + draft the commit"];
     rework [label="Rewrite the comment,\nshow both languages"];
     post [label="Keep the comment\nfor the pending review"];
     post_now [label="Publish now\n(github-curl)"];
     batch [label="\"post all\" / \"fix all\" / \"skip all\":\nhandle every remaining item"];
     next_item [label="Move to next item"];
     completion [label="Completion: write ONE review,\nleft PENDING, when anything was kept"];
+    commit_cmd [label="Create the prepared commits,\nreport the SHAs, push nothing"];
     done [label="User submits it on GitHub" shape=ellipse];
 
     start -> check_review;
@@ -100,14 +101,17 @@ digraph start_review {
     user_input -> batch [label="\"post all\"\n\"fix all\"\n\"skip all\""];
     user_input -> next_item [label="\"next\""];
     user_input -> current [label="question\n(answer it)"];
-    apply_fix -> user_input [label="wait again"];
+    apply_fix -> user_input [label="gate red:\nreport, wait"];
+    apply_fix -> next_item [label="gate green"];
     post -> user_input [label="wait again"];
     post_now -> user_input [label="wait again"];
     rework -> user_input [label="wait again"];
     batch -> completion;
     next_item -> current [label="more items"];
     next_item -> completion [label="no more"];
-    completion -> done;
+    completion -> commit_cmd [label="\"commit\""];
+    completion -> done [label="nothing was fixed"];
+    commit_cmd -> done;
 }
 ```
 
@@ -283,8 +287,11 @@ If you catch yourself thinking:
 - "They said 'makes sense' so I'll fix it" → STOP. "Makes sense" ≠ `fix`.
 - "I'll batch the simple ones together" → STOP. One at a time.
 - "The agent reported it, so it's true" → STOP. Verify the anchor first.
+- "The fix is applied, I'll wait for `next`" → STOP. A fixed item with a green gate advances by itself; the user already gave the order when they said `fix`.
+- "I'll commit the fix now" → STOP. Commits land at Completion, on `commit`, and never during an item's turn.
+- "The gate takes a while, I'll report the fix and run it after" → STOP. An unrun gate is a red gate; nothing is staged or drafted until it has passed.
 
-**All of these mean: wait for an explicit user command.**
+**All of these mean: stop, and do exactly what the command the user gave says — no more, and no less.**
 
 ---
 
@@ -295,12 +302,13 @@ If you catch yourself thinking:
 | `post` | Keep the current item's English comment for the pending review — nothing is sent |
 | `post now` | Publish the current item's comment on the PR immediately, **in English** — never ask which language. Only on this command, spelled out |
 | `rework` | Rewrite the current comment, then show it again in both languages and WAIT — see below |
-| `fix` | Apply the proposed code change for the current item |
+| `fix` | Apply the proposed code change for the current item, run the project's gate, stage its files and draft its commit message, then move to the next item — see After "fix" |
 | `next` | Skip the current item, move to the next |
 | Questions | Answer in the user's language, then keep waiting |
 | `post all` | Render each remaining block 8 in turn, keep it without waiting (the After "post" step 1 file write included, for each item), then go to Completion (explicit batch request) |
-| `fix all` | Apply fixes to ALL remaining items (explicit batch request) |
+| `fix all` | Apply fixes to ALL remaining items (explicit batch request), each one gated, staged and drafted as After "fix" describes, then go to Completion |
 | `skip all` | Mark all remaining as skipped, then go to Completion — the items already kept are written, never lost |
+| `commit` | At Completion only: create the commits prepared by the fixed items — see Completion |
 
 `rework` is for a comment the user does not understand. The rewrite carries one main
 idea: the defect and the consequence the user can see, one sentence for the suggestion,
@@ -371,9 +379,43 @@ python3 "$GH" pr-comment <PR> --body-file <file>
 
 ## After "fix"
 
+A fix is not finished when the edit lands: it is finished when the project's own
+checks agree with it. This section runs them, prepares the commit and moves on.
+Nothing is committed here.
+
 1. Apply the change with the Edit tool.
-2. Confirm, in the user's language: "Fixed. Item #N done." Do NOT commit unless asked.
-3. **WAIT** — do not auto-advance.
+
+2. **Run the project's quality gate on what you just changed**, synchronously, in
+   the tool call that waits for it — not in the background, and not summarised
+   from memory. The gate is whatever this repository defines: the check and test
+   commands its `CLAUDE.md` or `CONTRIBUTING.md` names, a `ci:check` script or the
+   equivalent, and when neither document names any, the tests covering the files
+   this item touched. State each command you ran with its exit code, one line
+   each, as in `composer ci:check -> exit code 0`. An exit code you did not read
+   is a gate you did not run.
+
+3. **A red gate stops here.** Report the failing command, its exit code and the
+   lines of its output that name the failure; say that the item is fixed but not
+   green; then stop and wait for the user, exactly as an item's own turn does.
+   Stage nothing, draft nothing, render no next item. The user decides what
+   follows: another `fix`, a revert, or moving on.
+
+4. **A green gate carries on.** Stage the files this item changed — those files
+   by name, never `git add -A`, which would sweep up the rest of the working
+   tree. Draft the commit message the repository's convention asks for, in
+   English, with no trailer of any kind, and write it with the Write tool to
+   `/tmp/claude-pr-review-<PR>/commit-<n>.msg` (n = the item number), beside the
+   comment bodies; record its subject and the files it covers under the item in
+   the walkthrough summary. **Create no commit**: the commits are created at
+   Completion, on the user's word, and not before.
+
+5. Say, in the user's language: "Fixed. Item #N: gate green (<the commands>),
+   commit prepared."
+
+6. **Move to the next item without being asked**: render its 8 blocks, or go to
+   Completion when no item remains. The user ordered this change with `fix` and
+   the project's own checks passed on it; making them type `next` after that buys
+   nothing. A red gate is the only outcome that holds the walkthrough on the item.
 
 ---
 
@@ -455,6 +497,30 @@ python3 "$GH" review-pending-add "$PR_NUM" --review-id <id> --path <path> --line
    sees none of it. The user opens it on GitHub, edits or deletes whatever they want,
    and submits it there. This skill never submits it.
 
+7. **Report the prepared commits and stop there.** Every item fixed with a green
+   gate left its files staged and a message drafted. List them under "Prepared
+   commits", in the order the items were fixed, each with the subject of its
+   message and the files it covers; say that the word `commit` creates them and
+   that nothing is pushed. **WAIT** for that word. A prepared commit is not a
+   commit: the user may still want to rewrite a message, drop one, or commit
+   nothing at all. When no item was fixed, this step and its summary section
+   disappear.
+
+8. **On `commit`**, create them in order, one commit per fixed item. The message
+   travels by file, never as an argument — a multi-line message with backticks
+   does not survive shell quoting — and the item's files are named as a pathspec,
+   so each commit carries that item's change and nothing else the walkthrough
+   staged along the way:
+
+```bash
+git commit -F /tmp/claude-pr-review-<PR>/commit-<n>.msg -- <the item's files>
+```
+
+   Two fixed items that changed the same file cannot be separated: commit them
+   together under a message covering both, and say which items share that commit.
+   Report the short SHA and the subject of every commit created. **Nothing is
+   pushed** — pushing is the user's, as submitting the review is.
+
 ```
 ## Walkthrough complete
 
@@ -469,7 +535,10 @@ python3 "$GH" review-pending-add "$PR_NUM" --review-id <id> --path <path> --line
 - #6: <title> — <URL>
 
 ### Fixed (1)
-- #2: <title>
+- #2: <title> — `path/file.php`, gate green (<the commands>)
+
+### Prepared commits (1)
+1. <the drafted message subject> — `path/file.php` (item #2)
 
 ### Skipped (1)
 - #4: <title> — dropped by the user
@@ -480,7 +549,7 @@ Review <id> — state PENDING, <N> comments. Read it on GitHub and submit it the
 |---|---|---|
 <the table the read printed, verbatim>
 
-<If any fixes were applied: offer to commit them. Otherwise, nothing to do.>
+Say `commit` to create the <N> prepared commits. Nothing is pushed.
 ```
 
 ---
@@ -517,6 +586,8 @@ Review <id> — state PENDING, <N> comments. Read it on GitHub and submit it the
    1) file:line  2) severity  3) explanation  4) why it's a problem
    5) opinion  6) proposed fix  7) scope  8) comment in the user's language + English
 5. WAIT for post / post now / rework / fix / next
-6. Write every kept comment into ONE review left PENDING
-7. Report it from a read, and leave the submitting to the user
+6. On fix: gate the change, stage it, draft its message, advance by yourself
+7. Write every kept comment into ONE review left PENDING
+8. Report it from a read, and leave the submitting to the user
+9. Create the prepared commits on "commit", and push nothing
 ```

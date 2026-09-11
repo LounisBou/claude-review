@@ -496,6 +496,37 @@ PYFENCE
 )
 check "every start-review bash block derives what it uses" "" "$unresolved"
 
+# Revision 3 -- "fix" runs the gate, prepares the commit and advances. The
+# section that used to stop the walkthrough after applying a change now runs the
+# project's gate and renders the next item, so the marker that stops a turn must
+# be gone from it: the uppercase WAIT this document uses everywhere else to
+# forbid auto-advance. A red gate still stops, said in prose, which is why this
+# check is case-sensitive -- it forbids the marker, not the waiting.
+check "start-review carries no WAIT marker after fix" "" \
+  "$(awk "$FENCE_TRACK"'
+     !f && /^## After "fix"$/ { in_fix = 1; next }
+     !f && /^## / { in_fix = 0 }
+     in_fix && /WAIT/ { print NR }' "$START_DOC")"
+
+# A gate whose result is not read is not a gate. Each command is stated with its
+# exit code, so a reader of the transcript can tell a green run from a red one
+# without trusting the agent's summary of it.
+check "start-review states the gate exit code" "1" \
+  "$(awk "$FENCE_TRACK"'
+     !f && /^## After "fix"$/ { in_fix = 1; next }
+     !f && /^## / { in_fix = 0 }
+     in_fix && /exit code/ { hits++ }
+     END { if (hits > 0) print 1; else print 0 }' "$START_DOC")"
+
+# The prepared commits are created on one word, at completion, and nowhere else:
+# the section that ends the walkthrough has to name that word as a command.
+check "start-review waits for commit at completion" "1" \
+  "$(awk "$FENCE_TRACK"'
+     !f && /^## Completion/ { in_done = 1; next }
+     !f && /^## / { in_done = 0 }
+     in_done && /`commit`/ { hits++ }
+     END { if (hits > 0) print 1; else print 0 }' "$START_DOC")"
+
 echo "== github resolver =="
 
 RESOLVE="$ROOT/scripts/resolve_github.py"
