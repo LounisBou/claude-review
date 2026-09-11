@@ -7,13 +7,12 @@ each one, and run an autonomous review-fix loop.
 The plugin is named `pr-review`, so its skills are `/pr-review:start-review`,
 `/pr-review:process-comments` and `/pr-review:auto-fix-loop`.
 
-## Requires three plugins
+## Requires two plugins
 
-This is a thin layer, not a fork. It builds on three plugins and refuses to run
+This is a thin layer, not a fork. It builds on two plugins and refuses to run
 without them:
 
 - `pr-review-toolkit@claude-plugins-official` — the review agents and `/review-pr`
-- `code-review@claude-plugins-official` — confidence-scored review
 - `github@lounisbou` — the GitHub API tool, see below
 
 **Installed is not the same as enabled.** A plugin can sit on disk and be inert, so
@@ -35,11 +34,10 @@ Add the marketplace, install the plugin, then check it:
 /pr-review:install
 ```
 
-`/pr-review:install` writes nothing. It is a diagnostic: it verifies the three plugin
-dependencies — `pr-review-toolkit@claude-plugins-official`,
-`code-review@claude-plugins-official` and `github@lounisbou` — plus python3 3.9+, curl,
-a GitHub token and a GitHub `origin` remote. Run `/pr-review:doctor` any time to
-repeat it.
+`/pr-review:install` writes nothing. It is a diagnostic: it verifies the two plugin
+dependencies — `pr-review-toolkit@claude-plugins-official` and `github@lounisbou` —
+plus python3 3.9+, curl, a GitHub token and a GitHub `origin` remote. Run
+`/pr-review:doctor` any time to repeat it.
 
 ## The skills
 

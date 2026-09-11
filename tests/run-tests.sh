@@ -116,7 +116,7 @@ pf() {
     sh -c "cd '$WORK/repo' && bash '$ROOT/scripts/preflight.sh'"
 }
 
-settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":true,"github@lounisbou":true}}'
+settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"github@lounisbou":true}}'
 check_status "all dependencies enabled passes" 0 pf
 
 # The github plugin resolves under either marketplace key -- its own and the
@@ -124,10 +124,10 @@ check_status "all dependencies enabled passes" 0 pf
 # satisfies the dependency; only neither is a failure. Requiring the
 # aggregate-key installs to re-install under a key that does not exist yet
 # would stop every skill on every machine that has the plugin already.
-settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":true,"github@claude-github":true}}'
+settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"github@claude-github":true}}'
 check_status "github under the aggregate key passes" 0 pf
 
-settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":true}}'
+settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true}}'
 check_status "neither github key exits 10" 10 pf
 
 # Reported once, under the canonical key -- not twice, once per variant.
@@ -136,7 +136,7 @@ check "the missing github dependency is named once" "1" \
 check "the aggregate key is never reported as missing" "0" \
   "$(pf 2>&1 >/dev/null | grep -c 'github@claude-github')"
 
-settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":false}}'
+settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":false,"github@lounisbou":true}}'
 check_status "a disabled dependency exits 10" 10 pf
 
 settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true}}'
@@ -145,8 +145,8 @@ check_status "an absent dependency exits 10" 10 pf
 settings '{ this is not json'
 check_status "malformed settings exits 10" 10 pf
 
-settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":false}}'
-named=$(pf 2>&1 >/dev/null | grep -c 'code-review')
+settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":false,"github@lounisbou":true}}'
+named=$(pf 2>&1 >/dev/null | grep -c 'pr-review-toolkit')
 check "the failure names the offending plugin" "2" "$named"
 
 settings '{"enabledPlugins":"not-a-dict"}'
@@ -160,8 +160,8 @@ output=$(pf 2>&1)
 error_lines=$(printf '%s' "$output" | grep -c '^error:')
 fix_lines=$(printf '%s' "$output" | grep -c '^fix:')
 traceback_lines=$(printf '%s' "$output" | grep -cE 'Traceback|^[A-Za-z]*Error:')
-check "enabledPlugins string produces error lines" "3" "$error_lines"
-check "enabledPlugins string produces fix lines" "3" "$fix_lines"
+check "enabledPlugins string produces error lines" "2" "$error_lines"
+check "enabledPlugins string produces fix lines" "2" "$fix_lines"
 check "enabledPlugins string has no traceback" "0" "$traceback_lines"
 
 settings '[]'
@@ -169,8 +169,8 @@ output=$(pf 2>&1)
 error_lines=$(printf '%s' "$output" | grep -c '^error:')
 fix_lines=$(printf '%s' "$output" | grep -c '^fix:')
 traceback_lines=$(printf '%s' "$output" | grep -cE 'Traceback|^[A-Za-z]*Error:')
-check "top-level array produces error lines" "3" "$error_lines"
-check "top-level array produces fix lines" "3" "$fix_lines"
+check "top-level array produces error lines" "2" "$error_lines"
+check "top-level array produces fix lines" "2" "$fix_lines"
 check "top-level array has no traceback" "0" "$traceback_lines"
 
 # A python3 that dies before printing anything is exactly the "missing"
@@ -190,7 +190,7 @@ exit 1
 FAKEPY
 chmod +x "$WORK/pybin/python3"
 
-settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":true}}'
+settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true}}'
 check_status "a crashing python3 exits 10, not 0" 10 \
   env HOME="$WORK" PR_REVIEW_SETTINGS="$WORK/cfg/settings.json" PR_REVIEW_SKIP_AUTH=1 PATH="$WORK/pybin:$PATH" \
     sh -c "cd '$WORK/repo' && bash '$ROOT/scripts/preflight.sh'"
@@ -199,6 +199,12 @@ output=$(env HOME="$WORK" PR_REVIEW_SETTINGS="$WORK/cfg/settings.json" PR_REVIEW
   sh -c "cd '$WORK/repo' && bash '$ROOT/scripts/preflight.sh'" 2>&1)
 check "a crashing python3 prints an error line" "1" "$(printf '%s' "$output" | grep -c '^error:')"
 check "a crashing python3 prints a fix line" "1" "$(printf '%s' "$output" | grep -c '^fix:')"
+
+# The operator's own machine: code-review@claude-plugins-official installed and
+# disabled, the two actual dependencies enabled. Not a dependency, so disabling
+# it must not block.
+settings '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"github@lounisbou":true,"code-review@claude-plugins-official":false}}'
+check_status "code-review disabled is not a dependency, passes" 0 pf
 
 echo "== preflight: GitHub token =="
 
@@ -337,7 +343,7 @@ check "install.sh is executable" "executable" \
   "$([ -x "$ROOT/install.sh" ] && echo executable || echo not-executable)"
 
 mkdir -p "$WORK/cfg"
-printf '%s' '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":true,"github@lounisbou":true}}' \
+printf '%s' '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"github@lounisbou":true}}' \
   > "$WORK/cfg/settings.json"
 
 inst() {
@@ -352,7 +358,7 @@ before=$(find "$WORK/cfg" -type f | sort)
 inst >/dev/null 2>&1
 check "install.sh writes nothing" "$before" "$(find "$WORK/cfg" -type f | sort)"
 
-printf '%s' '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":true,"code-review@claude-plugins-official":false}}' \
+printf '%s' '{"enabledPlugins":{"pr-review-toolkit@claude-plugins-official":false,"github@lounisbou":true}}' \
   > "$WORK/cfg/settings.json"
 check_status "install.sh fails when a dependency is disabled" 10 inst
 

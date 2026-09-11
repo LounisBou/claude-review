@@ -43,7 +43,6 @@ import json, sys
 # machine that already has the plugin under the other.
 required = [
     ("pr-review-toolkit@claude-plugins-official",),
-    ("code-review@claude-plugins-official",),
     ("github@lounisbou", "github@claude-github"),
 ]
 try:
