@@ -14,7 +14,7 @@ action. A non-zero exit stops the skill: print its output verbatim and do nothin
 
 **Default deliverable: a draft review comment for the PR author, not a code change.** Most reviews target someone else's branch; the normal outcome is a comment the author acts on. Applying a fix is the exception, and it happens only on the explicit `fix` command.
 
-**Core principle:** the user controls the pace and the review is theirs to submit. No batching. No auto-fixing. No auto-posting.
+**Core principle:** the user controls the pace and the review is theirs to submit. The walkthrough moves one item at a time and never batches, fixes or posts on its own initiative — only the user's own `post all`, `fix all` or `skip all` covers more than the item on screen.
 
 **Announce at start:** "I'm using pr-review:start-review for an interactive review walkthrough."
 

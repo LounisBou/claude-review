@@ -535,6 +535,16 @@ check "start-review names its batch commands in the advance rule" "1" \
        if ($0 ~ /"post all"/ && $0 ~ /"fix all"/ && $0 ~ /"skip all"/) hits++ }
      END { if (hits == 1) print 1; else print 0 }' "$START_DOC")"
 
+# The skill never batches on its own initiative, and the user's own command may.
+# The core principle has to carry that distinction: a blanket "No batching" reads
+# as a refusal of "post all", "fix all" and "skip all", which the table grants.
+# The line must exist and must say the walkthrough is item by item -- a check that
+# only forbade a phrase would pass on a deleted principle.
+check "start-review's core principle admits the user's batch commands" "1" \
+  "$(awk '/^\*\*Core principle:\*\*/ {
+       n++; if ($0 !~ /No batching/ && $0 ~ /one item at a time/) ok++ }
+     END { if (n == 1 && ok == 1) print 1; else print 0 }' "$START_DOC")"
+
 echo "== github resolver =="
 
 RESOLVE="$ROOT/scripts/resolve_github.py"
