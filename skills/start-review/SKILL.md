@@ -26,7 +26,7 @@ action. A non-zero exit stops the skill: print its output verbatim and do nothin
 NEVER apply code changes unless the user explicitly says "fix"
 NEVER publish anything the PR author can see unless the user explicitly says "post now"
 NEVER submit the pending review, resolve a thread or reply in one — post now is the only publication this skill performs, on that command alone
-NEVER move to the next item unless the user explicitly says "next" or the item was just fixed with a green gate
+NEVER move to the next item unless the user explicitly says "next", the item was just fixed with a green gate, or the user gave one of the batch commands "post all", "fix all" or "skip all"
 ```
 
 **No exceptions:**

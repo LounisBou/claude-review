@@ -527,6 +527,14 @@ check "start-review waits for commit at completion" "1" \
      in_done && /`commit`/ { hits++ }
      END { if (hits > 0) print 1; else print 0 }' "$START_DOC")"
 
+# The walkthrough is item by item, and three of the user's own commands cover more
+# than one item. The rule that forbids advancing has to name them, or an agent that
+# reads it literally refuses a command the table grants.
+check "start-review names its batch commands in the advance rule" "1" \
+  "$(awk '/^NEVER move to the next item/ {
+       if ($0 ~ /"post all"/ && $0 ~ /"fix all"/ && $0 ~ /"skip all"/) hits++ }
+     END { if (hits == 1) print 1; else print 0 }' "$START_DOC")"
+
 echo "== github resolver =="
 
 RESOLVE="$ROOT/scripts/resolve_github.py"
