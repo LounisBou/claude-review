@@ -528,12 +528,12 @@ check "start-review waits for commit at completion" "1" \
      END { if (hits > 0) print 1; else print 0 }' "$START_DOC")"
 
 # A prepared commit is unfinished work if the walkthrough ends before the word
-# arrives; the section that ends it has to open on that fact as a STOP.
+# arrives; a buried mention mid-paragraph must not pass, only the STOP opening.
 check "start-review stops on a prepared commit left uncreated" "1" \
   "$(awk "$FENCE_TRACK"'
      !f && /^## Completion/ { in_done = 1; next }
      !f && /^## / { in_done = 0 }
-     in_done && /prepared commits not created/ { hits++ }
+     in_done && index($0, "STOP: <N> prepared commits not created") { hits++ }
      END { if (hits > 0) print 1; else print 0 }' "$START_DOC")"
 
 # The walkthrough is item by item, and three of the user's own commands cover more

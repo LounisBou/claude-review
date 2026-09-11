@@ -283,9 +283,9 @@ If you catch yourself thinking:
 - "I'll create the review with an event so it's done" → STOP. `post now` is the only publication this skill performs, and no event belongs outside it. A review opened with an event is submitted, and the user never saw it.
 - "The user said the rewrite is clearer, I'll keep it" → STOP. Only `post` on the version shown keeps it.
 - "`post` means it should be on the PR now" → STOP. `post` keeps. Only `post now` publishes.
-- "Let me show all items at once for efficiency" → STOP. One at a time.
+- "Let me show all items at once for efficiency" → STOP. One at a time, unless the user gave a batch command.
 - "They said 'makes sense' so I'll fix it" → STOP. "Makes sense" ≠ `fix`.
-- "I'll batch the simple ones together" → STOP. One at a time.
+- "I'll batch the simple ones together" → STOP. One at a time, unless the user gave a batch command.
 - "The agent reported it, so it's true" → STOP. Verify the anchor first.
 - "The fix is applied, I'll wait for `next`" → STOP. A fixed item with a green gate advances by itself; the user already gave the order when they said `fix`.
 - "I'll commit the fix now" → STOP. Commits land at Completion, on `commit`, and never during an item's turn.
@@ -576,7 +576,7 @@ Say `commit` to create the <N> prepared commits. Nothing is pushed.
 | Walking through the code in block 8 | The author can read their own code | Name file:line once, describe the effect |
 | Bundling a second concern at the bottom | It gets lost and never answered | Make it its own TODO item |
 | Writing another language into code or commits | Repository artifacts are English-only | English in every file |
-| Batching items | User loses control | One item at a time |
+| Batching on the skill's own initiative | User loses control | One item at a time, unless the user gave `post all`, `fix all` or `skip all` |
 | Auto-fixing after explaining | No explicit permission | Wait for `fix` |
 | Auto-posting a comment | `post now` is the only publication this skill performs | Wait for that command, spelled out |
 | Listing an unverified agent finding | Wastes the author's time on a non-issue | Verify the anchor first |
@@ -596,7 +596,7 @@ Say `commit` to create the <N> prepared commits. Nothing is pushed.
 4. For each item, render the 8 blocks:
    1) file:line  2) severity  3) explanation  4) why it's a problem
    5) opinion  6) proposed fix  7) scope  8) comment in the user's language + English
-5. WAIT for post / post now / rework / fix / next
+5. WAIT for post / post now / rework / fix / next, or a batch command (post all / fix all / skip all)
 6. On fix: gate the change, stage it, draft its message, advance by yourself
 7. Write every kept comment into ONE review left PENDING
 8. Report it from a read, and leave the submitting to the user
