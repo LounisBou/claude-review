@@ -46,7 +46,9 @@ builds a numbered list, then presents one item at a time and waits. The comments
 along the way go into a single review left pending on the PR, which the author cannot
 see until the user reads it, edits it and submits it on GitHub. Applying a fix
 happens only on the explicit `fix` command, and publishing a comment on the spot only
-on `post now`.
+on `post now`. A fix runs the repository's own check and test commands before the
+walkthrough moves on, and leaves its commit prepared: the commits are created at the
+end, on `commit`, and nothing is pushed.
 
 **`/pr-review:process-comments`** — works through a PR's existing comments with the
 user deciding each one. It announces the workload first and only builds full project
