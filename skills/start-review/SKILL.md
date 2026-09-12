@@ -14,7 +14,7 @@ action. A non-zero exit stops the skill: print its output verbatim and do nothin
 
 **Default deliverable: a draft review comment for the PR author, not a code change.** Most reviews target someone else's branch; the normal outcome is a comment the author acts on. Applying a fix is the exception, and it happens only on the explicit `fix` command.
 
-**Core principle:** the user controls the pace and the review is theirs to submit. The walkthrough moves one item at a time and never batches, fixes or posts on its own initiative — only the user's own `post all`, `fix all` or `skip all` covers more than the item on screen.
+**Core principle:** the user controls the pace and the review is theirs to submit. The walkthrough moves one item at a time and never batches, fixes or posts on its own initiative — only the user's own `post all`, `fix all` or `skip all` covers more than the item on screen. A decision on the item shown is also the order to move on: after `post`, `post now`, a green `fix` or `next`, the next item is rendered without a second command.
 
 **Announce at start:** "I'm using pr-review:start-review for an interactive review walkthrough."
 
@@ -26,7 +26,7 @@ action. A non-zero exit stops the skill: print its output verbatim and do nothin
 NEVER apply code changes unless the user explicitly says "fix"
 NEVER publish anything the PR author can see unless the user explicitly says "post now"
 NEVER submit the pending review, resolve a thread or reply in one — post now is the only publication this skill performs, on that command alone
-NEVER move to the next item unless the user explicitly says "next", the item was just fixed with a green gate, or the user gave one of the batch commands "post all", "fix all" or "skip all"
+NEVER move to the next item before the user has decided the one on screen: `post`, `post now`, `fix` with a green gate and `next` are the decisions, and each one moves on by itself; a question, `rework` and a red gate hold the item. Only the batch commands "post all", "fix all" or "skip all" decide more than the item on screen
 ```
 
 **No exceptions:**
@@ -104,8 +104,8 @@ digraph start_review {
     user_input -> current [label="question\n(answer it)"];
     apply_fix -> user_input [label="gate red:\nreport, wait"];
     apply_fix -> next_item [label="gate green"];
-    post -> user_input [label="wait again"];
-    post_now -> user_input [label="wait again"];
+    post -> next_item [label="kept"];
+    post_now -> next_item [label="published"];
     rework -> user_input [label="wait again"];
     batch -> completion;
     next_item -> current [label="more items"];
@@ -291,6 +291,7 @@ If you catch yourself thinking:
 - "I'll batch the simple ones together" → STOP. One at a time, unless the user gave a batch command.
 - "The agent reported it, so it's true" → STOP. Verify the anchor first.
 - "The fix is applied, I'll wait for `next`" → STOP. A fixed item with a green gate advances by itself; the user already gave the order when they said `fix`.
+- "The comment is kept, I'll wait for `next`" → STOP. `post` and `post now` are decisions too; the next item is rendered at once.
 - "I'll commit the fix now" → STOP. Commits land at Completion, on `commit`, and never during an item's turn.
 - "The gate takes a while, I'll report the fix and run it after" → STOP. An unrun gate is a red gate; nothing is staged or drafted until it has passed.
 
@@ -302,8 +303,8 @@ If you catch yourself thinking:
 
 | Command | Action |
 |---------|--------|
-| `post` | Keep the current item's English comment for the pending review — nothing is sent |
-| `post now` | Publish the current item's comment on the PR immediately, **in English** — never ask which language. Only on this command, spelled out |
+| `post` | Keep the current item's English comment for the pending review — nothing is sent — then move to the next item |
+| `post now` | Publish the current item's comment on the PR immediately, **in English** — never ask which language. Only on this command, spelled out — then move to the next item |
 | `rework` | Rewrite the current comment, then show it again in both languages and WAIT — see below |
 | `fix` | Apply the proposed code change for the current item, run the project's gate, stage its files and draft its commit message, then move to the next item — see After "fix" |
 | `next` | Skip the current item, move to the next |
@@ -341,7 +342,9 @@ completion.
    under "for the review body". Its English text is listed at completion, for the user
    to paste into the review when submitting it.
 3. Say, in the user's language: "kept for the pending review (N so far)".
-4. **WAIT** — do not auto-advance.
+4. **Move to the next item without being asked**: render its 8 blocks, or go to Completion
+   when no item remains. `post` was the decision on this item; asking for `next` on top
+   of it buys nothing.
 
 ---
 
@@ -378,7 +381,8 @@ python3 "$GH" pr-comment <PR> --body-file <file>
 ```
 
 4. Confirm with the posted URL.
-5. **WAIT** — do not auto-advance.
+5. **Move to the next item without being asked**: render its 8 blocks, or go to Completion
+   when no item remains.
 
 ---
 
@@ -429,7 +433,7 @@ Nothing is committed here.
 1. Mark the item as skipped unless it was already kept, fixed or published — `next` moves
    on, it does not undo what the item already earned.
 2. If items remain, move to the next and render its 8 blocks. Otherwise go to Completion.
-3. **WAIT**.
+3. **WAIT** for the command on the item now shown.
 
 ---
 
@@ -596,7 +600,8 @@ Say `commit` to create the <N> prepared commits, or `drop <n>` / `drop all` to d
 | Auto-posting a comment | `post now` is the only publication this skill performs | Wait for that command, spelled out |
 | Listing an unverified agent finding | Wastes the author's time on a non-issue | Verify the anchor first |
 | Anchoring on the symptom line | The author cannot act on it | Anchor on the defect line |
-| Moving on after a question | The user did not say `next` | Answer, then wait |
+| Moving on after a question | A question is not a decision on the item | Answer, then wait |
+| Waiting for `next` after `post`, `post now` or a green `fix` | The decision was the order to move on | Render the next item at once |
 | Mentioning agents or tooling in a comment | Non-business reference in a durable artifact | Write as one developer to another |
 | Ending a session, a handoff or a rotation with a prepared commit uncreated | Unfinished work survives the session in a staged tree and a `/tmp` file nobody reads | `STOP: <N> prepared commits not created, say commit`, then wait |
 
@@ -611,9 +616,10 @@ Say `commit` to create the <N> prepared commits, or `drop <n>` / `drop all` to d
 4. For each item, render the 8 blocks:
    1) file:line  2) severity  3) explanation  4) why it's a problem
    5) opinion  6) proposed fix  7) scope  8) comment in the user's language + English
-5. WAIT for post / post now / rework / fix / next, or a batch command (post all / fix all / skip all)
-6. On fix: gate the change, stage it, draft its message, advance by yourself
-7. Write every kept comment into ONE review left PENDING
-8. Report it from a read, and leave the submitting to the user
-9. Create the prepared commits on "commit", and push nothing
+5. WAIT for the command on the item shown: post / post now / rework / fix / next, or a batch command (post all / fix all / skip all)
+6. post, post now, next and a green fix each advance to the next item by themselves; a question, rework and a red gate hold it
+7. On fix: gate the change, stage it, draft its message, advance by yourself
+8. Write every kept comment into ONE review left PENDING
+9. Report it from a read, and leave the submitting to the user
+10. Create the prepared commits on "commit", and push nothing
 ```

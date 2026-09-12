@@ -57,7 +57,7 @@ check "github-curl is gone" "absent" \
 check "manifest declares the dependency" "github@lounisbou" \
   "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["dependencies"][0])' "$ROOT/.claude-plugin/plugin.json")"
 
-check "manifest version" "0.3.3" \
+check "manifest version" "0.3.4" \
   "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/.claude-plugin/plugin.json")"
 
 # The marketplace entry is a second copy of the same facts, read by the host that
@@ -465,6 +465,23 @@ check "start-review writes the review only at completion" "" \
   "$(awk "$FENCE_TRACK"'
      !f && /^## / { section = $0 }
      /review-pending-(create|add)/ && section !~ /^## Completion/ { print NR }' "$START_DOC")"
+
+# A decision on the item shown — post, post now, fix on a green gate, next — is the
+# order to move on: the walkthrough renders the next item without a second command.
+# Only a question, rework and a red gate hold it. A "do not auto-advance" left under
+# the post sections would make the user type next after every decision, which is
+# the stall this rule removes.
+check "start-review advances after post and post now" "" \
+  "$(awk "$FENCE_TRACK"'
+     !f && /^## After "post( now)?"$/ { in_post = 1; next }
+     !f && /^## / { in_post = 0 }
+     in_post && /do not auto-advance/ { print NR }' "$START_DOC")"
+check "start-review renders the next item after post and post now" "2" \
+  "$(awk "$FENCE_TRACK"'
+     !f && /^## After "post( now)?"$/ { in_post = 1; next }
+     !f && /^## / { in_post = 0 }
+     in_post && /Move to the next item without being asked/ { cnt++ }
+     END { print cnt + 0 }' "$START_DOC")"
 
 # The three pending subcommands are the new path; the contract loop proves they exist.
 for sub in review-pending review-pending-create review-pending-add; do
