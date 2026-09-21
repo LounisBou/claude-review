@@ -281,7 +281,36 @@ USER_LOGIN=$(python3 "$SKILL_DIR/extract_user_login.py") || exit 1
 
 # Reviews: filter to those with non-empty body, excluding PR author's own reviews
 python3 "$SKILL_DIR/filter_reviews.py" "$USER_LOGIN"
+
+# Reviews: like issue comments just above, a review body is hidden the same
+# way -- resolving a review body means checking GraphQL isMinimized per node
+# id (comments-resolved-batch), then cross-referencing that against the
+# review list, which is not something any subcommand or formatter does. Do
+# the extraction and the cross-reference locally, the same way, and overwrite
+# open-reviews.json so a review already minimized on GitHub is gone before
+# Step 1 counts anything. (No `!=` below, so this is safe to run inline.)
+python3 -c "
+import json
+reviews = json.load(open('$PR_REVIEW_TMP/open-reviews.json'))
+ids = [r['node_id'] for r in reviews if r.get('node_id')]
+json.dump(ids, open('$PR_REVIEW_TMP/review-ids.json', 'w'))
+"
+python3 "$GH" comments-resolved-batch "$PR_REVIEW_TMP/review-ids.json" > "$PR_REVIEW_TMP/reviews-resolved-batch.json"
+python3 -c "
+import json
+reviews = json.load(open('$PR_REVIEW_TMP/open-reviews.json'))
+resolved = json.load(open('$PR_REVIEW_TMP/reviews-resolved-batch.json'))
+def is_minimized(review):
+    entry = resolved.get(review.get('node_id')) or {}
+    node = entry.get('node') or {}
+    return bool(node.get('isMinimized'))
+open_reviews = [r for r in reviews if not is_minimized(r)]
+json.dump(open_reviews, open('$PR_REVIEW_TMP/open-reviews.json', 'w'), indent=2)
+print('Open review body comments:', len(open_reviews))
+"
 ```
+
+After this block, `$PR_REVIEW_TMP/open-reviews.json` contains ONLY visible (non-minimized) review body comments, the same guarantee Phase 3 already gives issue comments above.
 
 **Phase 4 — Display summaries:**
 
@@ -580,8 +609,6 @@ Display the full comment with context:
 
 > <full comment text>
 ```
-
-**Note on review body comments:** These are the body text submitted with a review action. Unlike review threads, they **cannot be individually resolved** via the GitHub API — they are part of the review object itself. Options 1 and 4 (resolve variants) will note that the comment was addressed but no API resolution is possible. The user may want to reply to the review on GitHub directly.
 
 #### 3.1b Classify Comment Intent (BEFORE assessment)
 
@@ -885,7 +912,14 @@ python3 "$GH" comment-resolve "$NODE_ID" --format error-check
 
 **For review body comments** (type = `review-body`):
 
-Review body comments cannot be individually resolved via the GitHub API — they are part of the review object. When the user picks option 1 or 4, inform them: "Review body comments cannot be resolved via API. The comment has been addressed — you may want to reply to the review on GitHub directly." Mark the TODO as completed.
+```bash
+# Each bash block is its own shell; resolve rather than inherit.
+GH_ROOT=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_github.py") || exit 1
+GH="$GH_ROOT/skills/github-curl/gh.py"
+
+# Resolve by minimizing the review (uses the review's node_id, e.g. PRR_...)
+python3 "$GH" comment-resolve "$NODE_ID" --format error-check
+```
 
 **If resolution fails** (permissions, invalid ID): Inform the user and suggest they resolve it manually in the GitHub UI.
 
