@@ -279,38 +279,24 @@ export PR_REVIEW_TMP="/tmp/claude-pr-review-$PR_NUM"
 USER_LOGIN=$(python3 "$SKILL_DIR/extract_user_login.py") || exit 1
 [ -n "$USER_LOGIN" ] || exit 1
 
-# Reviews: filter to those with non-empty body, excluding PR author's own reviews
-python3 "$SKILL_DIR/filter_reviews.py" "$USER_LOGIN"
-
-# Reviews: like issue comments just above, a review body is hidden the same
-# way -- resolving a review body means checking GraphQL isMinimized per node
-# id (comments-resolved-batch), then cross-referencing that against the
-# review list, which is not something any subcommand or formatter does. Do
-# the extraction and the cross-reference locally, the same way, and overwrite
-# open-reviews.json so a review already minimized on GitHub is gone before
-# Step 1 counts anything. (No `!=` below, so this is safe to run inline.)
+# Reviews: like issue comments above, resolving a review body means checking
+# GraphQL isMinimized per node id (comments-resolved-batch) before filtering
+# -- extract every review's node_id up front so filter_reviews.py can drop a
+# review already minimized on GitHub in the same pass as the body/author
+# filter below. (No `!=` below, so this is safe to run inline.)
 python3 -c "
 import json
-reviews = json.load(open('$PR_REVIEW_TMP/open-reviews.json'))
+reviews = json.load(open('$PR_REVIEW_TMP/reviews.json'))
 ids = [r['node_id'] for r in reviews if r.get('node_id')]
 json.dump(ids, open('$PR_REVIEW_TMP/review-ids.json', 'w'))
 "
 python3 "$GH" comments-resolved-batch "$PR_REVIEW_TMP/review-ids.json" > "$PR_REVIEW_TMP/reviews-resolved-batch.json"
-python3 -c "
-import json
-reviews = json.load(open('$PR_REVIEW_TMP/open-reviews.json'))
-resolved = json.load(open('$PR_REVIEW_TMP/reviews-resolved-batch.json'))
-def is_minimized(review):
-    entry = resolved.get(review.get('node_id')) or {}
-    node = entry.get('node') or {}
-    return bool(node.get('isMinimized'))
-open_reviews = [r for r in reviews if not is_minimized(r)]
-json.dump(open_reviews, open('$PR_REVIEW_TMP/open-reviews.json', 'w'), indent=2)
-print('Open review body comments:', len(open_reviews))
-"
-```
 
-After this block, `$PR_REVIEW_TMP/open-reviews.json` contains ONLY visible (non-minimized) review body comments, the same guarantee Phase 3 already gives issue comments above.
+# Reviews: filter to those with non-empty body, excluding PR author's own
+# reviews and any already minimized on GitHub (per reviews-resolved-batch.json
+# above).
+python3 "$SKILL_DIR/filter_reviews.py" "$USER_LOGIN"
+```
 
 **Phase 4 — Display summaries:**
 
