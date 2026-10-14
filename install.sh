@@ -49,7 +49,7 @@ install_gh_macos() {
 install_gh_linux() {
   command -v curl >/dev/null 2>&1 || die "curl not found on PATH" "install curl" 11
   command -v tar >/dev/null 2>&1 || die "tar not found on PATH" "install tar" 11
-  local arch latest tag version name tmp
+  local arch latest tag version name tmp base expected actual
   case "$(uname -m)" in
     x86_64 | amd64) arch=amd64 ;;
     aarch64 | arm64) arch=arm64 ;;
@@ -70,8 +70,30 @@ install_gh_linux() {
   name="gh_${version}_linux_${arch}"
   tmp=$(mktemp -d) || die "could not create a temporary directory" "check that TMPDIR is writable" 11
   echo "pr-review: installing gh $version into $LOCAL_BIN..."
-  if ! curl -fsSL -o "$tmp/gh.tar.gz" "https://github.com/cli/cli/releases/download/$tag/$name.tar.gz" \
-    || ! tar -xzf "$tmp/gh.tar.gz" -C "$tmp" \
+  base="https://github.com/cli/cli/releases/download/$tag"
+  if ! curl -fsSL -o "$tmp/gh.tar.gz" "$base/$name.tar.gz" \
+    || ! curl -fsSL -o "$tmp/checksums.txt" "$base/gh_${version}_checksums.txt"; then
+    rm -rf "$tmp"
+    die "could not download gh $version" "check the network, then run /pr-review:install again" 11
+  fi
+  # A binary fetched over the network runs only once it matches the release's
+  # own checksum list: a missing line is a refusal, like a wrong one.
+  expected=$(grep "  $name.tar.gz\$" "$tmp/checksums.txt" | head -n 1)
+  expected=${expected%% *}
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual=$(sha256sum "$tmp/gh.tar.gz")
+  elif command -v shasum >/dev/null 2>&1; then
+    actual=$(shasum -a 256 "$tmp/gh.tar.gz")
+  else
+    rm -rf "$tmp"
+    die "neither sha256sum nor shasum is on PATH, so the gh download cannot be checked" "install coreutils, then run /pr-review:install again" 11
+  fi
+  actual=${actual%% *}
+  if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+    rm -rf "$tmp"
+    die "the gh $version archive does not match its release checksum" "install gh by hand: https://cli.github.com" 11
+  fi
+  if ! tar -xzf "$tmp/gh.tar.gz" -C "$tmp" \
     || ! mkdir -p "$LOCAL_BIN" \
     || ! cp "$tmp/$name/bin/gh" "$LOCAL_BIN/gh" \
     || ! chmod 755 "$LOCAL_BIN/gh"; then

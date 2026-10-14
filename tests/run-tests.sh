@@ -283,13 +283,21 @@ cat > "$TPL/curl" <<'FAKE'
 #!/bin/sh
 echo "curl $*" >> "$FAKE_LOG"
 case "$*" in *url_effective*) echo "https://github.com/cli/cli/releases/tag/v2.99.0"; exit 0 ;; esac
-out=""; prev=""
-for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done
-cp "$FAKE_TPL/gh.tar.gz" "$out"
+out=""; prev=""; url=""
+for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; url="$a"; done
+case "$url" in
+  *_checksums.txt) cp "${FAKE_SUMS:-$FAKE_TPL/checksums.txt}" "$out" ;;
+  *) cp "$FAKE_TPL/gh.tar.gz" "$out" ;;
+esac
 FAKE
 chmod +x "$TPL/gh" "$TPL/brew" "$TPL/uname" "$TPL/curl"
 cp "$TPL/gh" "$TPL/gh_2.99.0_linux_amd64/bin/gh"
 tar -czf "$TPL/gh.tar.gz" -C "$TPL" gh_2.99.0_linux_amd64
+# The release's checksum list, in its own format: one that matches the archive,
+# and one whose line for it is wrong.
+SUM=$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$TPL/gh.tar.gz")
+printf '%s  gh_2.99.0_linux_arm64.tar.gz\n%s  gh_2.99.0_linux_amd64.tar.gz\n' "$(printf '%064d' 1)" "$SUM" > "$TPL/checksums.txt"
+printf '%s  gh_2.99.0_linux_amd64.tar.gz\n' "$(printf '%064d' 0)" > "$TPL/checksums-bad.txt"
 
 # auth_case <name> <os> <fakes...>: a fresh bin, home and state for one case.
 # The real tools the scripts need are linked in one by one; the fakes are
@@ -298,8 +306,12 @@ auth_case() {
   A="$WORK/auth/$1"; AOS="$2"; shift 2
   rm -rf "$A" && mkdir -p "$A/bin" "$A/home" "$A/state"
   : > "$A/log"
-  for tool in bash sh git tar mktemp cp mkdir chmod rm grep cat dirname; do
+  for tool in bash sh git tar mktemp cp mkdir chmod rm grep cat dirname head; do
     ln -s "$(command -v "$tool")" "$A/bin/$tool"
+  done
+  # The checksum tool the machine has: sha256sum, or shasum where it is missing.
+  for tool in sha256sum shasum; do
+    command -v "$tool" >/dev/null 2>&1 && ln -s "$(command -v "$tool")" "$A/bin/$tool"
   done
   # The interpreter itself: a version manager's shim needs tools this PATH lacks.
   ln -s "$PY_REAL" "$A/bin/python3"
@@ -360,6 +372,24 @@ check "missing gh on Linux: the release archive for this machine is fetched" "1"
 check "missing gh on Linux: gh lands in ~/.local/bin" "executable" \
   "$([ -x "$A/home/.local/bin/gh" ] && echo executable || echo missing)"
 check "missing gh on Linux: then gh auth login --web" "1" "$(grep -cx "$LOGIN_LINE" "$A/log")"
+check "missing gh on Linux: the release checksum list is fetched from the same tag" "1" \
+  "$(grep -c 'releases/download/v2.99.0/gh_2.99.0_checksums.txt' "$A/log")"
+
+# 6b. An archive that does not match its checksum line is refused, and nothing
+# lands in ~/.local/bin.
+auth_case linux-bad-sum Linux
+AUTH_EXTRA="FAKE_SUMS=$TPL/checksums-bad.txt" auth_run "$ROOT/install.sh"; leak_check
+check "a checksum mismatch exits 11 with an error line" "11 1" \
+  "$(cat "$A/code") $(grep -c '^error: .*does not match its release checksum' "$A/out")"
+check "a checksum mismatch installs nothing" "absent 0" \
+  "$([ -e "$A/home/.local/bin/gh" ] && echo present || echo absent) $(grep -c 'auth login --hostname' "$A/log")"
+
+# 6c. A checksum list with no line for the archive is a refusal too.
+printf '%s  gh_2.99.0_linux_arm64.tar.gz\n' "$(printf '%064d' 1)" > "$WORK/sums-missing.txt"
+auth_case linux-no-sum Linux
+AUTH_EXTRA="FAKE_SUMS=$WORK/sums-missing.txt" auth_run "$ROOT/install.sh"; leak_check
+check "a missing checksum line exits 11 and installs nothing" "11 absent" \
+  "$(cat "$A/code") $([ -e "$A/home/.local/bin/gh" ] && echo present || echo absent)"
 
 # 7. The login does not complete: exit 12 and the one command that retries it.
 auth_case login-fails Darwin gh
